@@ -1,0 +1,7 @@
+#!/bin/sh
+# WCP: do not commit .WCP/
+if git diff --cached --name-only | grep -q '^\.WCP/'; then
+  echo "WCP: do not commit .WCP/" >&2
+  exit 1
+fi
+exit 0
