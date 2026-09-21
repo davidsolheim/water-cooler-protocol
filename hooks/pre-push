@@ -1,0 +1,11 @@
+#!/bin/sh
+# WCP: agents do not push
+if [ -n "$WCP_AGENT" ]; then
+  echo "WCP: agents do not push; drop WCP_AGENT if you are the human." >&2
+  exit 1
+fi
+if git diff --cached --name-only 2>/dev/null | grep -q '^\.WCP/'; then
+  echo "WCP: do not push .WCP/" >&2
+  exit 1
+fi
+exit 0
