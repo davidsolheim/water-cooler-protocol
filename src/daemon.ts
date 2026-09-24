@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import type { Database } from "bun:sqlite";
 import { openDb } from "./db.ts";
-import { gitBranch } from "./git.ts";
+import { gitBranch, listWorktreeFiles } from "./git.ts";
 import {
   dbPath,
   lockPath,
@@ -70,6 +70,7 @@ function makeCtx(db: Database, repoRoot: string, now?: () => string): RpcCtx {
     gitBranch: () => gitBranch(repoRoot),
     pidAlive,
     sha256: (boardPath) => sha256File(absFromBoard(repoRoot, boardPath)),
+    listExisted: () => listWorktreeFiles(repoRoot),
   };
 }
 

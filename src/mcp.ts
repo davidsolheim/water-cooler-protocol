@@ -11,15 +11,30 @@ type JsonRpc = {
   params?: Record<string, unknown>;
 };
 
+let sessionName: { agent: string; token: string } | undefined;
+
 const TOOLS = [
   {
+    name: "wcp_name",
+    description:
+      "Reserve this agent's self-chosen id for the run. Call once before other WCP tools. On name_taken, pick a different id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Short id, for example session-refresh or tw-331." },
+      },
+      required: ["name"],
+    },
+  },
+  {
     name: "wcp_look",
-    description: "Read the WCP occupancy board (arch, live leases, drift).",
+    description: "Read the WCP occupancy board (arch, names, live leases, drift).",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "wcp_acquire",
-    description: "Acquire an exclusive burst lease on one path. Fails with conflict or agent_busy.",
+    description:
+      "Claim one pre-existing file. Requires a test file already written that names the path. Refuses test files and new files.",
     inputSchema: {
       type: "object",
       properties: {
@@ -27,8 +42,9 @@ const TOOLS = [
         path: { type: "string" },
         doing: { type: "string" },
         scope: { type: "string" },
+        test: { type: "string", description: "Test file written first. Must name this path." },
       },
-      required: ["path", "doing"],
+      required: ["path", "doing", "test"],
     },
   },
   {
@@ -49,16 +65,22 @@ const TOOLS = [
   },
   {
     name: "wcp_overtake",
-    description: "Take an idle lease to finish the work already in motion. Inherits doing/scope.",
+    description:
+      "Take an idle lease on a pre-existing file to finish that work. Requires your own test naming the path.",
     inputSchema: {
       type: "object",
-      properties: { agent: { type: "string" }, path: { type: "string" } },
-      required: ["path"],
+      properties: {
+        agent: { type: "string" },
+        path: { type: "string" },
+        test: { type: "string", description: "Test file written first. Must name this path." },
+      },
+      required: ["path", "test"],
     },
   },
   {
     name: "wcp_write_ok",
-    description: "Hard gate: fail closed unless this agent holds a live, non-drift lease on the path.",
+    description:
+      "For a pre-existing file, fail closed without a live non-drift lease. Test files and new files pass with no lease.",
     inputSchema: {
       type: "object",
       properties: { agent: { type: "string" }, path: { type: "string" } },
@@ -79,7 +101,10 @@ function agentOf(params: Record<string, unknown> | undefined): string | undefine
   if (typeof a === "string" && a) {
     return a;
   }
-  return process.env.WCP_AGENT;
+  if (process.env.WCP_AGENT) {
+    return process.env.WCP_AGENT;
+  }
+  return sessionName?.agent;
 }
 
 async function ensureDaemon(root: string): Promise<void> {
@@ -117,6 +142,21 @@ async function callTool(name: string, params: Record<string, unknown> | undefine
   await ensureDaemon(root);
   const agent = agentOf(params);
   switch (name) {
+    case "wcp_name": {
+      const requested =
+        (typeof params?.name === "string" && params.name) ||
+        (typeof params?.agent === "string" && params.agent) ||
+        sessionName?.agent;
+      const res = await rpc(root, {
+        id: "mcp",
+        method: "name",
+        params: { agent: requested, token: sessionName?.token, pid: process.pid },
+      });
+      if (res.ok && res.agent && res.token) {
+        sessionName = { agent: res.agent, token: res.token };
+      }
+      return res;
+    }
     case "wcp_look":
       return rpc(root, { id: "mcp", method: "look" });
     case "wcp_acquire":
@@ -128,6 +168,7 @@ async function callTool(name: string, params: Record<string, unknown> | undefine
           path: params?.path,
           doing: params?.doing,
           scope: params?.scope ?? "",
+          test: params?.test,
           pid: process.pid,
         },
       });
@@ -139,7 +180,7 @@ async function callTool(name: string, params: Record<string, unknown> | undefine
       return rpc(root, {
         id: "mcp",
         method: "overtake",
-        params: { agent, path: params?.path, pid: process.pid },
+        params: { agent, path: params?.path, test: params?.test, pid: process.pid },
       });
     case "wcp_write_ok":
       return rpc(root, { id: "mcp", method: "write_ok", params: { agent, path: params?.path } });

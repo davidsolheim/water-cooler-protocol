@@ -72,3 +72,35 @@ export function pidAlive(pid: number): boolean {
     return false;
   }
 }
+
+const TEST_PATH_RE = [
+  /(^|\/)[^/]+\.test\.(tsx?|jsx?|mjs|cjs|mts|cts)$/,
+  /(^|\/)[^/]+\.spec\.(tsx?|jsx?|mjs|cjs|mts|cts)$/,
+  /(^|\/)__tests__\//,
+  /(^|\/)[^/]+_test\.(go|py|rs|rb|exs)$/,
+  /(^|\/)test_[^/]+\.py$/,
+  /(^|\/)[^/]+_spec\.rb$/,
+  /(^|\/)[^/]+Tests?\.java$/,
+  /(^|\/)[^/]+\.test\.cs$/,
+];
+
+export function isTestPath(boardPath: string): boolean {
+  return TEST_PATH_RE.some((re) => re.test(boardPath));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function testMarksPath(text: string, agent: string, boardPath: string): boolean {
+  const needle = `WCP ${agent}:`;
+  const pathRe = new RegExp(
+    `(?:^|[^A-Za-z0-9_./-])${escapeRegExp(boardPath)}(?![A-Za-z0-9_-])`,
+  );
+  for (const line of text.split(/\r?\n/)) {
+    if (line.includes(needle) && pathRe.test(line)) {
+      return true;
+    }
+  }
+  return false;
+}

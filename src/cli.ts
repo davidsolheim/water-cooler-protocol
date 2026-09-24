@@ -15,10 +15,11 @@ Usage:
   wcp start --arch <text> [--branch dev] [--ttl-sec 60] [--force]
   wcp look [--json]
   wcp status
-  wcp acquire --path <file> --doing <text> [--scope <text>] [--agent <id>]
+  wcp name <id>
+  wcp acquire --path <existing-file> --test <test-file> --doing <text> [--scope <text>] [--agent <id>]
   wcp release [--agent <id>]
   wcp reup [--agent <id>]
-  wcp overtake --path <file> [--agent <id>]
+  wcp overtake --path <existing-file> --test <test-file> [--agent <id>]
   wcp write-ok --path <file> [--agent <id>]
   wcp set-arch <text>
   wcp install-hooks
@@ -26,7 +27,7 @@ Usage:
   wcp daemon [--detach]
   wcp mcp
 
-Env: WCP_AGENT is the default --agent.
+Env: WCP_AGENT is this agent's name. WCP_NAME_TOKEN proves it. Set both from \`wcp name\`.
 `;
 
 type Flags = {
@@ -62,6 +63,9 @@ function parseArgv(argv: string[]): Flags {
     }
     if (cmd === "set-arch" || cmd === "set_arch") {
       rest.arch = rest.arch ? `${rest.arch} ${a}` : a;
+    }
+    if (cmd === "name" && rest.name == null) {
+      rest.name = a;
     }
   }
   return { cmd, json, rest };
@@ -105,6 +109,18 @@ function print(res: RpcResponse, json: boolean): void {
         );
       }
     }
+    const names = res.names ?? [];
+    if (names.length === 0) {
+      console.log("names: (none)");
+    } else {
+      console.log(`names: ${names.map((named) => named.agent_id).join(", ")}`);
+    }
+    return;
+  }
+  if (res.token && res.agent) {
+    console.log(`agent: ${res.agent}`);
+    console.log(`export WCP_AGENT=${res.agent}`);
+    console.log(`export WCP_NAME_TOKEN=${res.token}`);
     return;
   }
   if (res.row) {
@@ -119,6 +135,14 @@ function print(res: RpcResponse, json: boolean): void {
   }
   if (res.released != null) {
     console.log(`released: ${res.released}`);
+    return;
+  }
+  if (res.claim === "test") {
+    console.log("test file: write it, no claim");
+    return;
+  }
+  if (res.claim === "new_file") {
+    console.log("new file: write it, no claim");
     return;
   }
   console.log("ok");
@@ -240,6 +264,30 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return call(root, "look", undefined, flags.json);
   }
 
+  if (flags.cmd === "name") {
+    const requested = flagStr(flags, "name");
+    const envAgent = process.env.WCP_AGENT;
+    const envToken = process.env.WCP_NAME_TOKEN;
+    if (envToken && envAgent && requested && requested !== envAgent) {
+      print(
+        {
+          id: "cli",
+          ok: false,
+          error: "already_named",
+          message: `this session is ${envAgent}`,
+        },
+        flags.json,
+      );
+      return 1;
+    }
+    const agent = requested ?? envAgent;
+    if (!agent) {
+      console.error("wcp: name requires an id, for example: wcp name session-refresh");
+      return 1;
+    }
+    return call(root, "name", { agent, token: envToken }, flags.json);
+  }
+
   if (flags.cmd === "set-arch" || flags.cmd === "set_arch") {
     const arch = flagStr(flags, "arch") ?? "";
     if (!arch) {
@@ -260,7 +308,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return call(
       root,
       "acquire",
-      { agent, path, doing, scope: flagStr(flags, "scope") ?? "" },
+      {
+        agent,
+        path,
+        doing,
+        scope: flagStr(flags, "scope") ?? "",
+        test: flagStr(flags, "test"),
+      },
       flags.json,
     );
   }
@@ -290,7 +344,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       console.error("wcp: overtake requires --path and --agent or WCP_AGENT");
       return 1;
     }
-    return call(root, "overtake", { agent, path }, flags.json);
+    return call(root, "overtake", { agent, path, test: flagStr(flags, "test") }, flags.json);
   }
 
   if (flags.cmd === "write-ok" || flags.cmd === "write_ok") {

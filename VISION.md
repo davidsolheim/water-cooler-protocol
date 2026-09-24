@@ -10,12 +10,15 @@ Home: [watercoolerprotocol.com](https://watercoolerprotocol.com)
 
 Local referee for 8–20 coding agents on one dirty working tree:
 
-- `wcpd` + SQLite in gitignored `.WCP/`
+- `wcpd` + SQLite stay gitignored under `.WCP/`; the work queue in `.WCP/issues/` is committed
 - Burst TTL leases (default 60s), one path per agent, one agent per path
+- Claims only for files that existed when the run started. Tests are written first and are not claimed. New files are written directly.
 - Drift via sha256 at acquire
 - CLI + MCP
+- Agents name themselves (`wcp name`); the referee reserves the id
 - Agent skill with a conflict playbook
-- Git hooks: no `.WCP/` commits; agents (`WCP_AGENT`) cannot push
+- Git hooks: no board or sqlite commits; `.WCP/issues/` may be committed; agents (`WCP_AGENT`) cannot push
+- The orchestrator is the only agent who commits, and only when no source-file lease is live. Workers do not commit or stash.
 
 Humans still own `origin/dev` and main. Agents do not push, reset HEAD, or rewind sibling edits.
 

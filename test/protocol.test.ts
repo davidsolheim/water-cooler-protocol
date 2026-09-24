@@ -6,10 +6,12 @@ import {
   MISSING_SHA,
   addSecondsIso,
   isExpired,
+  isTestPath,
   isoNow,
   normalizeBoardPath,
   pidAlive,
   sha256File,
+  testMarksPath,
   validateAgentId,
 } from "../src/protocol.ts";
 
@@ -89,6 +91,24 @@ describe("ttl", () => {
     expect(isExpired(expires, "2026-09-18T19:51:59Z")).toBe(false);
     expect(isExpired(expires, "2026-09-18T19:52:00Z")).toBe(true);
     expect(isExpired(expires, "2026-09-18T19:52:01Z")).toBe(true);
+  });
+});
+
+describe("test paths", () => {
+  test("recognizes test files and leaves source files alone", () => {
+    expect(isTestPath("src/auth/session.test.ts")).toBe(true);
+    expect(isTestPath("src/auth/session.test.tsx")).toBe(true);
+    expect(isTestPath("src/__tests__/session.ts")).toBe(true);
+    expect(isTestPath("src/auth/session.ts")).toBe(false);
+    expect(isTestPath("src/auth/session.tsx")).toBe(false);
+  });
+
+  test("a marker names the claimed path and not a longer sibling", () => {
+    const text = "// WCP auth-1: src/a.ts refresh rotates (arch)\n";
+    expect(testMarksPath(text, "auth-1", "src/a.ts")).toBe(true);
+    expect(testMarksPath(text, "ui-2", "src/a.ts")).toBe(false);
+    expect(testMarksPath(text, "auth-1", "src/a.tsx")).toBe(false);
+    expect(testMarksPath(text, "auth-1", "src/b.ts")).toBe(false);
   });
 });
 

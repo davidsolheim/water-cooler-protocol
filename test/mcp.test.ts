@@ -83,6 +83,7 @@ describe("mcp", () => {
     expect(initRes.result?.serverInfo?.name).toBe("wcp");
     const list = msgs[1] as { result?: { tools?: Array<{ name: string }> } };
     const names = (list.result?.tools ?? []).map((t) => t.name);
+    expect(names).toContain("wcp_name");
     expect(names).toContain("wcp_look");
     expect(names).toContain("wcp_acquire");
     expect(names).not.toContain("wcp_set_arch");

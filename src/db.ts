@@ -9,6 +9,13 @@ export function openDb(path: string): Database {
   return db;
 }
 
+function ensureColumn(db: Database, table: string, column: string, alter: string): void {
+  const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((col) => col.name === column)) {
+    db.exec(alter);
+  }
+}
+
 export function migrate(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS run (
@@ -16,7 +23,8 @@ export function migrate(db: Database): void {
       branch TEXT NOT NULL DEFAULT 'dev',
       arch TEXT NOT NULL DEFAULT '',
       ttl_sec INTEGER NOT NULL DEFAULT 60,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      snap_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS live (
@@ -28,7 +36,26 @@ export function migrate(db: Database): void {
       leased_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       sha256 TEXT NOT NULL,
+      pid INTEGER,
+      test_path TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS existed (
+      path TEXT PRIMARY KEY
+    );
+
+    CREATE TABLE IF NOT EXISTS actor (
+      agent_id TEXT PRIMARY KEY,
+      token TEXT NOT NULL,
+      named_at TEXT NOT NULL,
       pid INTEGER
     );
   `);
+  ensureColumn(db, "run", "snap_at", "ALTER TABLE run ADD COLUMN snap_at TEXT");
+  ensureColumn(
+    db,
+    "live",
+    "test_path",
+    "ALTER TABLE live ADD COLUMN test_path TEXT NOT NULL DEFAULT ''",
+  );
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitRepo } from "./helpers.ts";
 
@@ -32,6 +32,32 @@ function wcp(
 }
 
 describe("cli", () => {
+  test("name reserves an id and rejects a second claim on it", () => {
+    const root = gitRepo();
+    dirs.push(root);
+    expect(wcp(root, ["init", "--arch", "demo", "--json"]).code).toBe(0);
+    const named = wcp(root, ["name", "session-refresh", "--json"]);
+    expect(named.code).toBe(0);
+    const body = JSON.parse(named.out) as { ok: boolean; agent: string; token: string };
+    expect(body.agent).toBe("session-refresh");
+    expect(body.token.length).toBeGreaterThan(8);
+    const again = wcp(root, ["name", "session-refresh", "--json"], {
+      WCP_AGENT: "session-refresh",
+      WCP_NAME_TOKEN: body.token,
+    });
+    expect(again.code).toBe(0);
+    expect(JSON.parse(again.out).token).toBe(body.token);
+    const taken = wcp(root, ["name", "session-refresh", "--json"]);
+    expect(taken.code).toBe(1);
+    expect(JSON.parse(taken.out).error).toBe("name_taken");
+    const stuck = wcp(root, ["name", "other-name", "--json"], {
+      WCP_AGENT: "session-refresh",
+      WCP_NAME_TOKEN: body.token,
+    });
+    expect(stuck.code).toBe(1);
+    expect(JSON.parse(stuck.out).error).toBe("already_named");
+  });
+
   test("init, exclusive acquire, write-ok, stop", () => {
     const root = gitRepo();
     dirs.push(root);
@@ -40,18 +66,33 @@ describe("cli", () => {
     const started = JSON.parse(init.out);
     expect(started.ok).toBe(true);
     expect(started.arch).toBe("demo");
-    expect(readFileSync(join(root, ".gitignore"), "utf8")).toContain(".WCP/");
+    const gi = readFileSync(join(root, ".gitignore"), "utf8").split("\n");
+    expect(gi).toContain(".WCP/RUN.md");
+    expect(gi).toContain(".WCP/run.sqlite");
+    expect(gi.filter((line) => line === ".WCP/" || line === ".WCP")).toHaveLength(0);
     expect(readFileSync(join(root, ".WCP", "mode"), "utf8").trim()).toBe("referee");
 
-    const a = wcp(root, ["acquire", "--path", "src/a.ts", "--doing", "rotate cookie", "--json"], {
-      WCP_AGENT: "auth-1",
-    });
+    writeFileSync(
+      join(root, "src", "a.test.ts"),
+      "// WCP auth-1: src/a.ts rotate cookie (demo)\n// WCP ui-2: src/a.ts empty state (demo)\n",
+    );
+    const a = wcp(
+      root,
+      ["acquire", "--path", "src/a.ts", "--test", "src/a.test.ts", "--doing", "rotate cookie", "--json"],
+      { WCP_AGENT: "auth-1" },
+    );
     expect(a.code).toBe(0);
     expect(JSON.parse(a.out).ok).toBe(true);
 
-    const b = wcp(root, ["acquire", "--path", "src/a.ts", "--doing", "empty state", "--json"], {
-      WCP_AGENT: "ui-2",
-    });
+    const fresh = wcp(root, ["write-ok", "--path", "src/fresh.ts", "--json"], { WCP_AGENT: "auth-1" });
+    expect(fresh.code).toBe(0);
+    expect(JSON.parse(fresh.out).claim).toBe("new_file");
+
+    const b = wcp(
+      root,
+      ["acquire", "--path", "src/a.ts", "--test", "src/a.test.ts", "--doing", "empty state", "--json"],
+      { WCP_AGENT: "ui-2" },
+    );
     expect(b.code).toBe(1);
     expect(JSON.parse(b.out).error).toBe("conflict");
 

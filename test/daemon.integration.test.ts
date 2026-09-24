@@ -29,16 +29,32 @@ describe("daemon", () => {
       params: { arch: "demo", branch: "dev" },
     });
     expect(start.ok).toBe(true);
+    writeFileSync(
+      join(root, "src", "a.test.ts"),
+      "// WCP auth-1: src/a.ts rotate cookie (demo)\n// WCP ui-2: src/a.ts empty state (demo)\n",
+    );
     const a = await rpc(root, {
       id: "2",
       method: "acquire",
-      params: { agent: "auth-1", path: "src/a.ts", doing: "rotate cookie", pid: process.pid },
+      params: {
+        agent: "auth-1",
+        path: "src/a.ts",
+        doing: "rotate cookie",
+        test: "src/a.test.ts",
+        pid: process.pid,
+      },
     });
     expect(a.ok).toBe(true);
     const b = await rpc(root, {
       id: "3",
       method: "acquire",
-      params: { agent: "ui-2", path: "src/a.ts", doing: "empty state", pid: process.pid },
+      params: {
+        agent: "ui-2",
+        path: "src/a.ts",
+        doing: "empty state",
+        test: "src/a.test.ts",
+        pid: process.pid,
+      },
     });
     expect(b.ok).toBe(false);
     if (!b.ok) expect(b.error).toBe("conflict");
@@ -54,10 +70,17 @@ describe("daemon", () => {
     dirs.push(root);
     daemons.push(startDaemon({ repoRoot: root }));
     await rpc(root, { id: "1", method: "start", params: { arch: "demo", branch: "dev" } });
+    writeFileSync(join(root, "src", "a.test.ts"), "// WCP auth-1: src/a.ts proves the change (demo)\n");
     await rpc(root, {
       id: "2",
       method: "acquire",
-      params: { agent: "auth-1", path: "src/a.ts", doing: "a", pid: process.pid },
+      params: {
+        agent: "auth-1",
+        path: "src/a.ts",
+        doing: "a",
+        test: "src/a.test.ts",
+        pid: process.pid,
+      },
     });
     writeFileSync(join(root, "src", "a.ts"), "changed\n");
     const ok = await rpc(root, {

@@ -7,7 +7,7 @@ This repo is the Water Cooler Protocol tool (`wcp` / `wcpd`), not a Next app.
 - Spec: `PROTOCOL.md`
 - Vision: `VISION.md`
 - Player instructions: `skill/water-cooler-protocol/SKILL.md`
-- Facts live in `PROTOCOL.md`. Do not fork them into the skill.
+- Facts live in `PROTOCOL.md`. The skill repeats the issue-queue rules so an agent can claim, renew, reclaim, and close from the skill alone. Keep the two in agreement.
 
 ## Stack
 
@@ -19,7 +19,9 @@ This repo is the Water Cooler Protocol tool (`wcp` / `wcpd`), not a Next app.
 ## Git
 
 - Integration branch: `dev`
-- Do not commit `.WCP/` or `.watercool/`
+- Do not commit the board or sqlite (`.WCP/RUN.md`, `.WCP/run.sqlite`, wal, shm) or `.watercool/`
+- Do commit `.WCP/issues/`
+- Only the orchestrator runs `git commit`, and only when `wcp look` shows no live source-file lease. Workers do not commit or stash.
 - Do not push unless asked
 
 ## Tests
@@ -28,4 +30,4 @@ This repo is the Water Cooler Protocol tool (`wcp` / `wcpd`), not a Next app.
 bun test
 ```
 
-Protocol behavior (exclusive lease, TTL, overtake, drift, write_ok) must stay covered. Do not reintroduce `wait` from `legacy/wcooler.sh`.
+Protocol behavior (exclusive lease, TTL, overtake, drift, write_ok, test-before-claim, unclaimed test files and new files, self-named agents) must stay covered. Do not reintroduce `wait` from `legacy/wcooler.sh`.
