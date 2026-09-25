@@ -203,6 +203,7 @@ At a healthy N, `live` should be almost empty most of the time. A long live list
 .WCP/issues/
   open/
   in-progress/
+  in-review/
   done/
   canceled/
   blocked/
@@ -214,14 +215,14 @@ Each issue is one markdown file. The filename keeps a stable id so a status move
 ---
 id: 0123
 title: Rotate refresh token on session mint
-status: open | in-progress | done | canceled | blocked
+status: open | in-progress | in-review | done | canceled | blocked
 priority: low | normal | high | critical
 assignee:          # agent id, empty if unclaimed
 lease_expires:     # ISO-8601 UTC, empty if unclaimed
 scope:             # what this ticket is allowed to change
 acceptance:        # short done definition
 files: []          # paths touched while solving
-commit:            # hash that closed it, empty until done
+commit:            # work-commit hash, empty until the orchestrator writes it
 reason:            # why it was canceled or blocked; empty unless status is canceled or blocked
 ---
 ```
@@ -247,15 +248,17 @@ The holder renews inside that window by setting `lease_expires` to now + 10 minu
 
 Reclaim when `lease_expires` is past and the holder is not renewing. Clear `assignee` and `lease_expires`, set `status: open`, move the file to `open/`. Reclaim is idempotent. Only one agent may be `assignee`. If two writes race, the last writer re-reads and leaves a single assignee. A reclaim that finds a future `lease_expires` and an assignee leaves that claim in place.
 
-Close when the work matches `acceptance`. The worker records touched paths in `files` as they land, releases every source-file lease, and leaves the tree dirty. A worker does not run `git commit` and does not run `git stash`. On a shared checkout, a stash hides another writer's uncommitted files.
+Close when the work matches `acceptance`. The solver records touched paths in `files`, releases every source-file lease, and leaves the tree dirty. The solver sets `status: in-review`, clears `lease_expires`, leaves `assignee` as itself, leaves `commit` empty, and moves the file to `in-review/`. A solver does not run `git commit` and does not run `git stash`. On a shared checkout, a stash hides another writer's uncommitted files.
 
-The orchestrator is the only one who commits. A commit happens only when `wcp look` shows no live source-file lease. A live lease means a writer is mid-edit. Wait. Do not commit that burst and do not stash it. An in-progress ticket is not a source-file lease.
+The orchestrator watches `.WCP/issues/in-review/`. For each file there, it launches one reviewer. The reviewer reads that issue and the paths in `files`, and checks security, accessibility, functionality, and aesthetics against `acceptance`. If the check fails, the reviewer fixes the code under the file lease, then releases it. The reviewer does not commit and does not stash. When the check passes, the reviewer sets `status: done`, clears `assignee` and `lease_expires`, and moves the file to `done/`.
+
+The orchestrator is the only one who commits. It does not commit while a reviewer is still running. A commit happens only when `wcp look` shows no live source-file lease. A live lease means a writer is mid-edit. Wait. Do not commit that burst and do not stash it. An in-review ticket is not a source-file lease.
 
 1. Commit the work. `files` already lists the paths. `commit` cannot name a hash that does not exist yet.
-2. Write that hash into `commit`, set `status: done`, clear `assignee` and `lease_expires`, and move the file to `done/`.
+2. Write that hash into `commit` on the done file.
 3. Commit that issue-file update. `wcp look` is still empty.
 
-If the orchestrator has not committed, leave `commit` empty and do not set `done`. The issue file is the completion record.
+If the orchestrator has not committed, leave `commit` empty. The reviewer may already have set `done`. The issue file is the completion record.
 
 Cancel when the work will not be done. The holder may cancel a ticket they hold. The orchestrator may cancel an open ticket, or an expired `in-progress` ticket. Do not cancel a ticket another agent holds under a live lease. Write `reason` (required), set `status: canceled`, clear `assignee` and `lease_expires`, and move the file to `canceled/`. Leave `commit` empty unless a work hash already exists. Do not delete the file and do not set `done`. Re-read and leave a single `reason`. The orchestrator commits the issue file, and only when `wcp look` shows no live source-file lease. Do not stash to make that commit. Search `canceled/` and `status: canceled` before filing the same work again. Revive only when the user says so: set `status: open`, clear the lease, move to `open/`, and leave `reason` in place.
 
@@ -263,9 +266,9 @@ Block when the work is still wanted and must not be claimed yet. The holder may 
 
 ### How a ticket is worked
 
-On start, read `open/` and `in-progress/`. Reclaim expired tickets. Do not rebuild that list on `RUN.md`. `arch` stays the session aim, not a copy of every ticket. If the queue directories do not exist and this run needs a queue, create `open/`, `in-progress/`, `done/`, `canceled/`, and `blocked/`, and one issue taken from the current `arch` only.
+On start, read `open/`, `in-progress/`, and `in-review/`. Reclaim expired `in-progress` tickets. Do not reclaim `in-review`. Do not rebuild that list on `RUN.md`. `arch` stays the session aim, not a copy of every ticket. If the queue directories do not exist and this run needs a queue, create `open/`, `in-progress/`, `in-review/`, `done/`, `canceled/`, and `blocked/`, and one issue taken from the current `arch` only.
 
-The orchestrator, or the agent if none is assigned, picks one file in `open/` and claims it. Skip `blocked/` and `canceled/`. One ticket per agent unless the user says otherwise. Do not claim a directory. The body is the spec. Implementation uses the file leases above: test first, short source lease, release before tests, thinking, waiting, or the orchestrator's commit. Workers do not commit and do not stash. Append paths to `files`. Do not put the diff on `RUN.md`.
+The orchestrator, or the agent if none is assigned, picks one file in `open/` and claims it. Skip `blocked/`, `canceled/`, and `in-review/`. One ticket per agent unless the user says otherwise. Do not claim a directory. The body is the spec. Implementation uses the file leases above: test first, short source lease, release before tests, thinking, waiting, or the orchestrator's commit. Workers do not commit and do not stash. Append paths to `files`. Do not put the diff on `RUN.md`.
 
 Two agents do not hold the same ticket. They do not hold the same source file. Different files on one ticket only when `scope` allows it, and each agent still holds one live source file. An idle ticket lease is a protocol violation, the same as an idle file line.
 

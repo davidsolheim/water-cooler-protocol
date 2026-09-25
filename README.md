@@ -94,7 +94,7 @@ MCP (stdio):
 - Drift via sha256 at acquire (`write-ok` fails if the file moved)
 - `overtake` inherits `doing`/`scope` on idle leases
 - L2: `write-ok` + hooks (no board or sqlite commits; `.WCP/issues/` is committed; `WCP_AGENT` cannot push)
-- Committed queue: `.WCP/issues/{open,in-progress,done,canceled,blocked}/`. Ticket lease is 10 minutes. Cancel and block each write `reason` and stay searchable. File lease stays the floor TTL. `RUN.md` stays occupancy and `arch`
+- Committed queue: `.WCP/issues/{open,in-progress,in-review,done,canceled,blocked}/`. Ticket lease is 10 minutes. A solver moves finished work to `in-review/`. One reviewer per issue checks it, fixes it, and sets `done`. Cancel and block each write `reason` and stay searchable. File lease stays the floor TTL. `RUN.md` stays occupancy and `arch`
 - Operating point: about 8–20 writers on disjoint files, not 100
 
 Not in V1: honor-mode markdown as the store, multi-path `also` bursts, harness wrapping of editor write tools, a hosted referee.
