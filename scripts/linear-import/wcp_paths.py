@@ -97,3 +97,22 @@ def resolve_under_issues(issues: Path, path: Path) -> Path:
     if not rel.parts or rel.parts[0] not in QUEUE_FOLDERS:
         raise ValueError(f"{path} is not under a queue status folder")
     return resolved
+
+
+def write_under_issues(issues: Path, path: Path, text: str) -> Path:
+    """Write text under the queue. Unlink a dest file symlink first so the write cannot follow it out."""
+    issues_abs = issues.resolve()
+    parent = path.parent.resolve()
+    if parent == issues_abs or not parent.is_relative_to(issues_abs):
+        raise ValueError(f"{path} is not under the issues root")
+    rel = parent.relative_to(issues_abs)
+    if not rel.parts or rel.parts[0] not in QUEUE_FOLDERS:
+        raise ValueError(f"{path} is not under a queue status folder")
+    dest = parent / path.name
+    if dest.is_symlink():
+        dest.unlink()
+    dest = resolve_under_issues(issues, dest)
+    if dest.is_symlink():
+        dest.unlink()
+    dest.write_text(text, encoding="utf-8")
+    return dest

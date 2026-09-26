@@ -9,14 +9,20 @@
 # WCP prb-fix: scripts/linear-import/apply-notion-ids.py resolve issues root like wcpDirName (fix linear-import)
 # WCP prb-fix: scripts/linear-import/build-notion-batches.py resolve issues root like wcpDirName (fix linear-import)
 # WCP prb-fix: scripts/linear-import/fix-wcp-acceptance.py resolve issues root like wcpDirName (fix linear-import)
+# WCP prb-fix: scripts/linear-import/import-linear-comments.py collect_pending skips files with no linear_id (fix linear-import)
+# WCP prb-fix: scripts/linear-import/import-linear-comments.py graphql keeps data when errors also present (fix linear-import)
+# WCP prb-fix: scripts/linear-import/apply-notion-ids.py unlink dest symlink before write (fix linear-import)
+# WCP prb-fix: scripts/linear-import/fix-wcp-acceptance.py unlink dest symlink before write (fix linear-import)
 """
 
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from wcp_paths import (
@@ -32,6 +38,7 @@ from wcp_paths import (
     wcp_dir_name,
     wcp_dir_name_from_entries,
     wcp_dir_names,
+    write_under_issues,
 )
 
 
@@ -180,6 +187,70 @@ class ForceReplaceTests(unittest.TestCase):
             self.assertIn("imported", dest.read_text(encoding="utf-8"))
             self.assertEqual(outside.read_text(encoding="utf-8"), "keep me\n")
             self.assertFalse(outside.is_symlink())
+
+
+class DestSymlinkWriteTests(unittest.TestCase):
+    def _symlink_dest(self, tmp: str, outside_text: str) -> tuple[Path, Path, Path]:
+        root = Path(tmp)
+        issues = root / ".wcp" / "issues"
+        dest = issues / "open" / "0007-soda-7-short-title.md"
+        dest.parent.mkdir(parents=True)
+        outside = root / "outside-target.md"
+        outside.write_text(outside_text, encoding="utf-8")
+        dest.symlink_to(outside)
+        return issues, dest, outside
+
+    def test_write_under_issues_leaves_outside_symlink_target_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            issues, dest, outside = self._symlink_dest(tmp, "keep me\n")
+            self.assertTrue(dest.is_symlink())
+            written = write_under_issues(issues, dest, issue_md("SODA-7", extra=" written"))
+            self.assertTrue(dest.exists())
+            self.assertFalse(dest.is_symlink())
+            self.assertTrue(dest.is_file())
+            self.assertEqual(dest.resolve().parent, (issues / "open").resolve())
+            self.assertTrue(dest.resolve().is_relative_to(issues.resolve()))
+            self.assertIn("written", dest.read_text(encoding="utf-8"))
+            self.assertEqual(outside.read_text(encoding="utf-8"), "keep me\n")
+            self.assertFalse(outside.is_symlink())
+            self.assertEqual(written.resolve(), dest.resolve())
+
+    def test_apply_notion_ids_leaves_outside_symlink_target_unchanged(self) -> None:
+        apply = load_script("apply-notion-ids.py")
+        original = (
+            "---\n"
+            'id: "0007"\n'
+            'linear_id: "SODA-7"\n'
+            "status: open\n"
+            "notion_page_id:\n"
+            "notion_url:\n"
+            "---\n\n"
+            "body\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues, dest, outside = self._symlink_dest(tmp, original)
+            self.assertTrue(apply.fill_notion_ids(issues, dest, "page-1", "https://notion.example/p"))
+            self.assertFalse(dest.is_symlink())
+            self.assertIn("page-1", dest.read_text(encoding="utf-8"))
+            self.assertEqual(outside.read_text(encoding="utf-8"), original)
+
+    def test_fix_wcp_acceptance_leaves_outside_symlink_target_unchanged(self) -> None:
+        fix = load_script("fix-wcp-acceptance.py")
+        original = (
+            "---\n"
+            'id: "0007"\n'
+            'linear_id: "SODA-7"\n'
+            'acceptance: "Acceptance criteria"\n'
+            "---\n\n"
+            "## Summary\n\n"
+            "This summary sentence is long enough to become the real acceptance line.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues, dest, outside = self._symlink_dest(tmp, original)
+            self.assertTrue(fix.rewrite_acceptance(issues, dest))
+            self.assertFalse(dest.is_symlink())
+            self.assertNotIn('acceptance: "Acceptance criteria"', dest.read_text(encoding="utf-8"))
+            self.assertEqual(outside.read_text(encoding="utf-8"), original)
 
 
 class AllowlistTests(unittest.TestCase):
@@ -341,6 +412,82 @@ class CommentBatchTests(unittest.TestCase):
         self.assertNotIn("identifier: { in", query)
         self.assertIn("SODA-7", found)
         self.assertNotIn("HR-1", found)
+
+    def test_collect_pending_skips_native_tickets_without_linear_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / ".wcp" / "issues"
+            open_dir = root / "open"
+            open_dir.mkdir(parents=True)
+            soda = open_dir / "0001-soda-1.md"
+            native = open_dir / "0002-native.md"
+            soda.write_text(issue_md("SODA-1", "0001"), encoding="utf-8")
+            native.write_text(
+                '---\nid: "0002"\nstatus: open\n---\n\nbody\n',
+                encoding="utf-8",
+            )
+            found = self.comments.collect_pending(root, ["open"], ["SODA"])
+            self.assertEqual([item[1] for item in found], ["SODA-1"])
+            self.assertEqual(found[0][0].resolve(), soda.resolve())
+
+    def test_collect_pending_records_malformed_linear_id_and_continues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / ".wcp" / "issues"
+            open_dir = root / "open"
+            open_dir.mkdir(parents=True)
+            soda = open_dir / "0001-soda-1.md"
+            bad = open_dir / "0003-bad.md"
+            soda.write_text(issue_md("SODA-1", "0001"), encoding="utf-8")
+            bad.write_text(issue_md("not-an-id", "0003"), encoding="utf-8")
+            errors: list[str] = []
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                found = self.comments.collect_pending(root, ["open"], ["SODA"], errors)
+            self.assertEqual([item[1] for item in found], ["SODA-1"])
+            self.assertEqual(len(errors), 1)
+            self.assertIn("0003-bad.md", errors[0])
+            self.assertIn("FAILED 0003-bad.md", buf.getvalue())
+
+    def test_graphql_data_keeps_data_when_errors_present(self) -> None:
+        body = {
+            "data": {
+                "i0": None,
+                "i1": {
+                    "identifier": "SODA-2",
+                    "comments": {"pageInfo": {"hasNextPage": False}, "nodes": []},
+                },
+            },
+            "errors": [{"message": "Entity not found: Issue"}],
+        }
+        data = self.comments.graphql_data(body)
+        self.assertIsNone(data["i0"])
+        self.assertIsInstance(data["i1"], dict)
+        with self.assertRaises(RuntimeError):
+            self.comments.graphql_data({"errors": [{"message": "boom"}]})
+
+    def test_fetch_comments_returns_only_resolved_aliases(self) -> None:
+        def fake_graphql(_token: str, _payload: dict) -> dict:
+            return {
+                "i0": None,
+                "i1": {
+                    "identifier": "SODA-2",
+                    "comments": {
+                        "pageInfo": {"hasNextPage": False},
+                        "nodes": [{"body": "hi", "createdAt": "", "user": {"name": "A"}}],
+                    },
+                },
+            }
+
+        original = self.comments.graphql
+        self.comments.graphql = fake_graphql
+        try:
+            found = self.comments.fetch_comments_for_ids(
+                "token", ["SODA-1", "SODA-2"], ["SODA"]
+            )
+        finally:
+            self.comments.graphql = original
+        self.assertEqual(list(found), ["SODA-2"])
+        self.assertNotIn("SODA-1", found)
+        self.assertEqual(found["SODA-2"]["nodes"][0]["body"], "hi")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from wcp_paths import issues_root
+from wcp_paths import issues_root, write_under_issues
 
 SKIP = {
     "summary",
@@ -89,6 +89,27 @@ def acceptance(body: str, linear_id: str) -> str:
     return f"Meet the imported Linear description for {linear_id}."
 
 
+def rewrite_acceptance(root: Path, path: Path, dry_run: bool = False) -> bool:
+    text = path.read_text(encoding="utf-8")
+    _prefix, front, body = text.split("---", 2)
+    linear = re.search(r'^linear_id: "(.*)"$', front, re.M)
+    linear_id = linear.group(1) if linear else path.name
+    new_value = json.dumps(acceptance(body, linear_id), ensure_ascii=False)
+    new_front, count = re.subn(
+        r"(?m)^acceptance: .*$",
+        f"acceptance: {new_value}",
+        front,
+        count=1,
+    )
+    if count != 1:
+        raise SystemExit(f"acceptance line missing in {path}")
+    if new_front == front:
+        return False
+    if not dry_run:
+        write_under_issues(root, path, f"---{new_front}---{body}")
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True, type=Path)
@@ -97,23 +118,8 @@ def main() -> None:
     root = issues_root(args.repo)
     changed = 0
     for path in sorted(root.rglob("*.md")):
-        text = path.read_text(encoding="utf-8")
-        _prefix, front, body = text.split("---", 2)
-        linear = re.search(r'^linear_id: "(.*)"$', front, re.M)
-        linear_id = linear.group(1) if linear else path.name
-        new_value = json.dumps(acceptance(body, linear_id), ensure_ascii=False)
-        new_front, count = re.subn(
-            r"(?m)^acceptance: .*$",
-            f"acceptance: {new_value}",
-            front,
-            count=1,
-        )
-        if count != 1:
-            raise SystemExit(f"acceptance line missing in {path}")
-        if new_front != front:
+        if rewrite_acceptance(root, path, dry_run=args.dry_run):
             changed += 1
-            if not args.dry_run:
-                path.write_text(f"---{new_front}---{body}", encoding="utf-8")
     print(f"updated {changed}")
 
 

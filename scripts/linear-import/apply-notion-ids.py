@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from wcp_paths import issues_root
+from wcp_paths import issues_root, write_under_issues
 
 
 def pages_from(data) -> list[dict]:
@@ -28,6 +28,28 @@ def pages_from(data) -> list[dict]:
         except json.JSONDecodeError:
             return []
     return []
+
+
+def fill_notion_ids(root: Path, path: Path, page_id: str, url: str) -> bool:
+    text = path.read_text(encoding="utf-8")
+    if re.search(r'^notion_page_id: ".+"$', text, re.M):
+        return False
+    text2, n1 = re.subn(
+        r"(?m)^notion_page_id:\s*$",
+        f"notion_page_id: {json.dumps(page_id)}",
+        text,
+        count=1,
+    )
+    text3, n2 = re.subn(
+        r"(?m)^notion_url:\s*$",
+        f"notion_url: {json.dumps(url)}",
+        text2,
+        count=1,
+    )
+    if n1 != 1 or n2 != 1:
+        raise SystemExit(f"frontmatter slots missing in {path}")
+    write_under_issues(root, path, text3)
+    return True
 
 
 def load_pages(sources: list[Path]) -> dict[str, tuple[str, str]]:
@@ -90,26 +112,10 @@ def main() -> None:
             if path is None:
                 missing_files += 1
                 continue
-            text = path.read_text(encoding="utf-8")
-            if re.search(r'^notion_page_id: ".+"$', text, re.M):
+            if fill_notion_ids(root, path, page_id, url):
+                updated += 1
+            else:
                 already += 1
-                continue
-            text2, n1 = re.subn(
-                r"(?m)^notion_page_id:\s*$",
-                f"notion_page_id: {json.dumps(page_id)}",
-                text,
-                count=1,
-            )
-            text3, n2 = re.subn(
-                r"(?m)^notion_url:\s*$",
-                f"notion_url: {json.dumps(url)}",
-                text2,
-                count=1,
-            )
-            if n1 != 1 or n2 != 1:
-                raise SystemExit(f"frontmatter slots missing in {path}")
-            path.write_text(text3, encoding="utf-8")
-            updated += 1
 
     filled_after = 0
     missing_after = []

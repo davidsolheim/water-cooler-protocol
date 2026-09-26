@@ -104,6 +104,17 @@ def chunk_identifiers(ids: list[str], size: int = COMMENTS_BATCH_SIZE) -> list[l
     return [list(ids[i : i + size]) for i in range(0, len(ids), size)]
 
 
+def graphql_data(body: dict) -> dict:
+    data = body.get("data")
+    if isinstance(data, dict):
+        return data
+    errors = body.get("errors")
+    if errors:
+        messages = [err.get("message", "graphql error") for err in errors]
+        raise RuntimeError("Linear query failed: " + "; ".join(messages))
+    return {}
+
+
 def graphql(token: str, payload: dict) -> dict:
     req = urllib.request.Request(
         API,
@@ -116,10 +127,7 @@ def graphql(token: str, payload: dict) -> dict:
             body = json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"Linear HTTP {exc.code}") from None
-    if body.get("errors"):
-        messages = [err.get("message", "graphql error") for err in body["errors"]]
-        raise RuntimeError("Linear query failed: " + "; ".join(messages))
-    return body.get("data") or {}
+    return graphql_data(body)
 
 
 def comments_by_id_from_alias_data(data: dict, ids: list[str]) -> dict[str, dict]:
@@ -140,11 +148,7 @@ def fetch_comments_for_ids(token: str, ids: list[str], teams: list[str]) -> dict
     if not kept:
         return {}
     data = graphql(token, comments_batch_payload(kept))
-    found = comments_by_id_from_alias_data(data, kept)
-    missing = [ident for ident in kept if ident not in found]
-    if missing:
-        raise RuntimeError("Linear comments missing for " + ", ".join(missing))
-    return found
+    return comments_by_id_from_alias_data(data, kept)
 
 
 def comment_block(identifier: str, comments: dict) -> tuple[str, int, bool]:
@@ -168,16 +172,21 @@ def comment_block(identifier: str, comments: dict) -> tuple[str, int, bool]:
     return "\n".join(lines), len(nodes), truncated
 
 
-def identifier_from_issue(path: Path, text: str) -> str:
+def identifier_from_issue(path: Path, text: str) -> str | None:
     if len(text.split("---", 2)) < 3:
         raise ValueError(f"missing frontmatter in {path.name}")
     ident = parse_linear_id(text)
     if not ident:
-        raise ValueError(f"missing linear_id in {path.name}")
+        return None
     return require_linear_identifier(ident)
 
 
-def collect_pending(root: Path, folders: list[str], teams: list[str]) -> list[tuple[Path, str]]:
+def collect_pending(
+    root: Path,
+    folders: list[str],
+    teams: list[str],
+    errors: list[str] | None = None,
+) -> list[tuple[Path, str]]:
     if not teams:
         raise ValueError("Pass at least one Linear team key via --teams")
     allowed = set(teams)
@@ -188,7 +197,15 @@ def collect_pending(root: Path, folders: list[str], teams: list[str]) -> list[tu
             text = resolved.read_text(encoding="utf-8")
             if "\n## Linear comments\n" in text:
                 continue
-            ident = identifier_from_issue(resolved, text)
+            try:
+                ident = identifier_from_issue(resolved, text)
+            except ValueError as exc:
+                if errors is not None:
+                    errors.append(f"{path.name}: {exc}")
+                print(f"FAILED {path.name}", flush=True)
+                continue
+            if ident is None:
+                continue
             if team_key_of(ident) not in allowed:
                 continue
             pending.append((resolved, ident))
@@ -220,19 +237,23 @@ def main() -> None:
     except ValueError as exc:
         raise SystemExit(str(exc)) from None
     root = issues_root(args.repo)
+    errors: list[str] = []
     try:
-        pending = collect_pending(root, folders, teams)
+        pending = collect_pending(root, folders, teams, errors)
     except ValueError as exc:
         raise SystemExit(str(exc)) from None
     print(json.dumps({"pending": len(pending), "folders": folders}))
     if args.dry_run or not pending:
+        if errors:
+            for error in errors:
+                print(error, file=sys.stderr)
+            raise SystemExit(1)
         return
 
     token = load_token(args.config, args.server)
     written = 0
     empty = 0
     truncated = 0
-    errors: list[str] = []
     unique_ids: list[str] = []
     seen: set[str] = set()
     for _path, ident in pending:
