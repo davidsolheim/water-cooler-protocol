@@ -92,7 +92,7 @@ def main() -> None:
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    root = args.repo / ".WCP" / "issues"
+    root = args.repo / ".wcp" / "issues"
     changed = 0
     for path in sorted(root.rglob("*.md")):
         text = path.read_text(encoding="utf-8")

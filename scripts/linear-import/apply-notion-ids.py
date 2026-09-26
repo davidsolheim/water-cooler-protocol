@@ -61,7 +61,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    root = args.repo / ".WCP" / "issues"
+    root = args.repo / ".wcp" / "issues"
     found = load_pages([args.results])
     by_id: dict[str, Path] = {}
     filled = 0

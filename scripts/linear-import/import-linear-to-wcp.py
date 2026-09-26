@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import Linear issues into a repo's .WCP/issues queue.
+"""Import Linear issues into a repo's .wcp/issues queue.
 
 Reads the Linear token from the named MCP server in ~/.grok/config.toml.
 Does not print the token, the Authorization header, or the config file.
@@ -448,7 +448,7 @@ def expect_ok(summary: dict, args: argparse.Namespace) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", required=True, type=Path, help="Checkout that receives .WCP/issues")
+    parser.add_argument("--repo", required=True, type=Path, help="Checkout that receives .wcp/issues")
     parser.add_argument("--server", required=True, help="MCP server name in the grok config")
     parser.add_argument("--teams", required=True, nargs="+", help="Linear team key(s)")
     parser.add_argument(
@@ -499,7 +499,7 @@ def main() -> None:
     if args.dry_run:
         return
 
-    issues_root = args.repo / ".WCP" / "issues"
+    issues_root = args.repo / ".wcp" / "issues"
     existing = list(issues_root.rglob("*.md")) if issues_root.exists() else []
     if existing and not args.force:
         raise SystemExit(

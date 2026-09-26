@@ -107,7 +107,7 @@ def main() -> None:
     args = parser.parse_args()
 
     folders = [part.strip() for part in args.folders.split(",") if part.strip()]
-    root = args.repo / ".WCP" / "issues"
+    root = args.repo / ".wcp" / "issues"
     pending: list[Path] = []
     for folder in folders:
         for path in sorted((root / folder).glob("*.md")):

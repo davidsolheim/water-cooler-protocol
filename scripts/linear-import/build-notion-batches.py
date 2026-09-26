@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build Notion create-pages batches from .WCP/issues. Skips pages already mirrored."""
+"""Build Notion create-pages batches from .wcp/issues. Skips pages already mirrored."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def main() -> None:
     if args.batch < 1 or args.batch > 80:
         raise SystemExit("--batch must be from 1 to 80")
 
-    root = args.repo / ".WCP" / "issues"
+    root = args.repo / ".wcp" / "issues"
     pages = []
     index = []
     for path in sorted(root.rglob("*.md")):

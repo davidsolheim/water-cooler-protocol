@@ -1,6 +1,6 @@
 # Linear import
 
-Copy a Linear team's issues into a repo's Water Cooler queue (`.WCP/issues/`) and build Notion page batches for the human board.
+Copy a Linear team's issues into a repo's Water Cooler queue (`.wcp/issues/`) and build Notion page batches for the human board.
 
 The Linear token is read from the named MCP server in `~/.grok/config.toml`. These scripts never print the token, the Authorization header, or the config file.
 
@@ -55,7 +55,7 @@ When more than one team shares the workspace, pass every team key that should be
 
 | Argument | Meaning |
 | --- | --- |
-| `--repo` | Checkout that receives `.WCP/issues/` |
+| `--repo` | Checkout that receives `.wcp/issues/` |
 | `--server` | MCP server name in the grok config |
 | `--teams` | Linear team key or keys |
 | `--id-rule` | `identity` or `primary-then-rest` |
@@ -111,7 +111,7 @@ WCP `0007`. Linear [SODA-7](https://linear.app/example/issue/SODA-7/slug).
 
 <acceptance>
 
-Full spec: `.WCP/issues/done/0007-soda-7-slug.md`
+Full spec: `.wcp/issues/done/0007-soda-7-slug.md`
 ```
 
 Run each batch through the Notion MCP create-pages tool with `allow_async` false. Save the JSON results and pass that directory to `apply-notion-ids.py`. Confirm `filled` equals the issue count and `missing` is 0.
