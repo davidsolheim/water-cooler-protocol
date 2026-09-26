@@ -5,6 +5,7 @@ import { canConnect, rpc } from "./client.ts";
 import { startDaemon } from "./daemon.ts";
 import { ensureBarrels, ensureGitignore, installHooks } from "./git.ts";
 import {
+  doctorReport,
   findRepoRoot,
   legacyMigrationLine,
   usingLegacyWcpDir,
@@ -157,17 +158,12 @@ function print(res: RpcResponse, json: boolean): void {
 }
 
 function printDoctor(root: string): number {
-  const { canonical, legacy } = wcpDirNames(root);
-  const state = canonical ? "canonical" : legacy ? "legacy" : "absent";
-  const label = canonical || !legacy ? ".wcp" : ".WCP";
-  console.log(`wcp: directory ${label} (${state})`);
-  if (canonical && legacy) {
-    console.log("wcp: both .wcp/ and .WCP/ exist; using .wcp/");
+  const report = doctorReport(wcpDirNames(root));
+  const write = report.code === 0 ? console.log : console.error;
+  for (const line of report.lines) {
+    write(line);
   }
-  if (usingLegacyWcpDir(root)) {
-    console.log(legacyMigrationLine());
-  }
-  return 0;
+  return report.code;
 }
 
 function daemonSpawnArgs(): string[] {

@@ -89,11 +89,26 @@ def acceptance(body: str, linear_id: str) -> str:
     return f"Meet the imported Linear description for {linear_id}."
 
 
+# Heading texts the importer stores when the description's first line is only a heading.
+# Comparison is case-insensitive against SKIP, so "Summary" and "summary" both rewrite.
 REWRITABLE_ACCEPTANCE = {
     "",
     "Acceptance criteria",
     "Expected behavior",
+    "Current behavior",
     "Meet the imported Linear issue.",
+    "Summary",
+    "Description",
+    "Implementer contract",
+    "User report",
+    "Request",
+    "Problem",
+    "Feedback ticket",
+    "Initiative",
+    "Context",
+    "Goal",
+    "Report",
+    "Linear import",
 }
 
 
@@ -117,8 +132,10 @@ def rewrite_acceptance(root: Path, path: Path, dry_run: bool = False) -> bool:
             current = raw
     new_plain = acceptance(body, linear_id)
     allowed = set(REWRITABLE_ACCEPTANCE)
+    allowed.update(SKIP)
     allowed.add(f"Meet the imported Linear description for {linear_id}.")
-    if current and current not in allowed and current != new_plain:
+    placeholder = current in allowed or current.lower() in SKIP
+    if current and not placeholder and current != new_plain:
         return False
     new_value = json.dumps(new_plain, ensure_ascii=False)
     new_front, count = re.subn(

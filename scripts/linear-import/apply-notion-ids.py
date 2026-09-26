@@ -65,16 +65,21 @@ def fill_notion_ids(root: Path, path: Path, page_id: str, url: str) -> bool:
     return True
 
 
+def is_tool_request(data) -> bool:
+    """Create-pages request payloads are named batch-*.json. Results can use that name too."""
+    return isinstance(data, dict) and "tool_name" in data and "tool_input" in data
+
+
 def load_pages(sources: list[Path]) -> dict[str, tuple[str, str]]:
     found: dict[str, tuple[str, str]] = {}
     for source in sources:
         paths = [source] if source.is_file() else sorted(source.glob("*.json"))
         for path in paths:
-            if path.name.startswith("index-") or path.name.startswith("batch-"):
-                continue
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
+                continue
+            if is_tool_request(data):
                 continue
             for page in pages_from(data):
                 props = page.get("properties") or {}

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureGitignore, installHooks, listWorktreeFiles, occupancyIgnoreLines, PRE_COMMIT_HOOK, PRE_PUSH_HOOK } from "../src/git.ts";
-import { legacyMigrationLine, MIGRATE_RUNTIME_COMMAND, usingLegacyWcpDir, wcpDir, wcpDirName } from "../src/paths.ts";
+import { doctorReport, legacyMigrationLine, MIGRATE_RUNTIME_COMMAND, usingLegacyWcpDir, wcpDir, wcpDirName, wcpDirNameFrom } from "../src/paths.ts";
 import { gitRepo } from "./helpers.ts";
 
 const dirs: string[] = [];
@@ -116,6 +116,29 @@ describe("gitignore and hooks", () => {
     dirs.push(outside);
     symlinkSync(outside, join(root, ".wcp"));
     expect(() => wcpDir(root)).toThrow(/symlink/);
+  });
+
+  test("wcpDirNameFrom refuses both queue directory entries", () => {
+    expect(() => wcpDirNameFrom({ canonical: true, legacy: true })).toThrow(/both \.wcp\/ and \.WCP\//);
+    expect(wcpDirNameFrom({ canonical: true, legacy: false })).toBe(".wcp");
+    expect(wcpDirNameFrom({ canonical: false, legacy: true })).toBe(".WCP");
+    const report = doctorReport({ canonical: true, legacy: false });
+    expect(report.code).toBe(0);
+    expect(report.lines.join("\n")).not.toContain("git mv .WCP");
+  });
+
+  test("doctor refuses both queue directories instead of choosing .wcp", () => {
+    const report = doctorReport({ canonical: true, legacy: true });
+    expect(report.code).toBe(1);
+    const text = report.lines.join("\n");
+    expect(text).toContain("both .wcp/ and .WCP/");
+    expect(text).not.toContain("using .wcp");
+    expect(text).toContain("git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp");
+    expect(text).toContain(MIGRATE_RUNTIME_COMMAND);
+    const legacy = doctorReport({ canonical: false, legacy: true });
+    expect(legacy.code).toBe(0);
+    expect(legacy.lines.join("\n")).toContain("directory .WCP (legacy)");
+    expect(legacy.lines.join("\n")).toContain("git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp");
   });
 
   test("wcpDirName uses .wcp when that directory entry exists", () => {

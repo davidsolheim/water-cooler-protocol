@@ -188,6 +188,26 @@ class ForceReplaceTests(unittest.TestCase):
             self.assertEqual(outside.read_text(encoding="utf-8"), "keep me\n")
             self.assertFalse(outside.is_symlink())
 
+    def test_replace_issue_file_does_not_follow_a_temp_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            issues = root / ".wcp" / "issues"
+            dest = issues / "open" / "0007-soda-7-short-title.md"
+            dest.parent.mkdir(parents=True)
+            outside = root / "outside-target.md"
+            outside.write_text("keep me\n", encoding="utf-8")
+            temporary = dest.with_name(dest.name + ".wcp-tmp")
+            temporary.symlink_to(outside)
+            self.importer.replace_issue_file(
+                issues, dest, issue_md("SODA-7", extra=" imported"), "SODA-7"
+            )
+            self.assertEqual(outside.read_text(encoding="utf-8"), "keep me\n")
+            self.assertFalse(outside.is_symlink())
+            self.assertTrue(dest.is_file())
+            self.assertFalse(dest.is_symlink())
+            self.assertIn("imported", dest.read_text(encoding="utf-8"))
+            self.assertFalse(temporary.exists())
+
 
 class DestSymlinkWriteTests(unittest.TestCase):
     def _symlink_dest(self, tmp: str, outside_text: str) -> tuple[Path, Path, Path]:
@@ -311,6 +331,52 @@ class DestSymlinkWriteTests(unittest.TestCase):
             dest.write_text(original, encoding="utf-8")
             self.assertFalse(fix.rewrite_acceptance(issues.parent, dest))
             self.assertEqual(dest.read_text(encoding="utf-8"), original)
+
+    def test_rewrite_acceptance_replaces_a_summary_heading(self) -> None:
+        fix = load_script("fix-wcp-acceptance.py")
+        original = (
+            "---\n"
+            'id: "0007"\n'
+            'linear_id: "SODA-7"\n'
+            'acceptance: "Summary"\n'
+            "---\n\n"
+            "## Summary\n\n"
+            "This summary sentence is long enough to become the real acceptance line.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            dest = issues / "0007.md"
+            dest.write_text(original, encoding="utf-8")
+            self.assertTrue(fix.rewrite_acceptance(issues.parent, dest))
+            written = dest.read_text(encoding="utf-8")
+            self.assertIn(
+                "This summary sentence is long enough to become the real acceptance line.",
+                written,
+            )
+            self.assertNotIn('acceptance: "Summary"', written)
+
+    def test_rewrite_acceptance_replaces_other_heading_placeholders(self) -> None:
+        fix = load_script("fix-wcp-acceptance.py")
+        sentence = "The description sentence is long enough to replace a heading-only acceptance."
+        for heading in ("Description", "Problem", "Current behavior"):
+            original = (
+                "---\n"
+                'id: "0007"\n'
+                'linear_id: "SODA-7"\n'
+                f'acceptance: "{heading}"\n'
+                "---\n\n"
+                f"## {heading}\n\n"
+                f"{sentence}\n"
+            )
+            with tempfile.TemporaryDirectory() as tmp:
+                issues = Path(tmp) / ".wcp" / "issues" / "open"
+                issues.mkdir(parents=True)
+                dest = issues / "0007.md"
+                dest.write_text(original, encoding="utf-8")
+                self.assertTrue(fix.rewrite_acceptance(issues.parent, dest), heading)
+                written = dest.read_text(encoding="utf-8")
+                self.assertNotIn(f'acceptance: "{heading}"', written)
 
 
 class AllowlistTests(unittest.TestCase):
@@ -605,6 +671,41 @@ class CodexFollowupTests(unittest.TestCase):
             'The description mentions notion_page_id: "already" and notion_url: "https://example.com".\n'
         )
         self.assertFalse(apply.notion_filled(text))
+
+    def test_load_pages_reads_a_result_named_like_a_batch(self) -> None:
+        apply = load_script("apply-notion-ids.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            result = {
+                "pages": [
+                    {
+                        "id": "page-1",
+                        "url": "https://notion.example/1?foo=1",
+                        "properties": {"WCP": "0007"},
+                    }
+                ]
+            }
+            request = {
+                "tool_name": "notion-create-pages",
+                "tool_input": {
+                    "pages": [
+                        {
+                            "properties": {"WCP": "0008"},
+                            "content": "request body",
+                        }
+                    ]
+                },
+            }
+            (out / "batch-00.json").write_text(json.dumps(result), encoding="utf-8")
+            (out / "batch-01.json").write_text(json.dumps(request), encoding="utf-8")
+            (out / "index-00.json").write_text(
+                json.dumps([{"linear": "SODA-7", "wcp": "0007", "path": "open/0007.md"}]),
+                encoding="utf-8",
+            )
+            found = apply.load_pages([out])
+            self.assertEqual(found, {"0007": ("page-1", "https://notion.example/1")})
+            self.assertEqual(apply.load_pages([out / "batch-00.json"]), found)
+            self.assertEqual(apply.load_pages([out / "batch-01.json"]), {})
 
     def test_fill_notion_ids_keeps_an_existing_page_id(self) -> None:
         apply = load_script("apply-notion-ids.py")

@@ -256,6 +256,8 @@ mv .WCP .wcp-tmp && mv .wcp-tmp .wcp
 
 Two steps, because a case-insensitive volume treats those names as one directory. Hooks allow `issues/` under either spelling and reject every other path under either folder. While the checkout is still on `.WCP/`, init also writes the four occupancy gitignore lines with that spelling.
 
+If both `.wcp/` and `.WCP/` exist as directory entries, `wcp` refuses to start and `wcp doctor` exits non-zero. Stop any daemon, then migrate. Choosing `.wcp/` while a daemon is still on `.WCP/` would start a second daemon on the same checkout.
+
 ### Ticket lease
 
 Claim: set `assignee` to the agent id, `status: in-progress`, `lease_expires` to now + 10 minutes (UTC), write the file, move it to `in-progress/`. Re-read. If `assignee` is not you, you do not hold it.

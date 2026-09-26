@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import stat
 import sys
 import tomllib
 import urllib.error
@@ -395,6 +397,26 @@ def id_owned_by_other(issues: Path, wcp_id: str, linear_id: str) -> Path | None:
     return None
 
 
+def write_exclusive_temp(temporary: Path, body: str) -> None:
+    """Write a new regular file. Unlink a pre-existing symlink instead of following it."""
+    try:
+        info = temporary.lstat()
+    except FileNotFoundError:
+        info = None
+    if info is not None:
+        if stat.S_ISLNK(info.st_mode) or stat.S_ISREG(info.st_mode):
+            temporary.unlink()
+        else:
+            raise ValueError(f"refusing temporary path {temporary}")
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(os.fspath(temporary), flags, 0o644)
+    except OSError as err:
+        raise ValueError(f"refusing temporary path {temporary}") from err
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(body)
+
+
 def replace_issue_file(issues: Path, dest: Path, body: str, linear_id: str) -> list[Path]:
     """Write dest and delete other markdown files that already carry this linear_id."""
     linear_id = require_linear_identifier(linear_id)
@@ -410,7 +432,7 @@ def replace_issue_file(issues: Path, dest: Path, body: str, linear_id: str) -> l
         dest.unlink()
     dest.parent.mkdir(parents=True, exist_ok=True)
     temporary = dest.with_name(dest.name + ".wcp-tmp")
-    temporary.write_text(body, encoding="utf-8")
+    write_exclusive_temp(temporary, body)
     temporary.replace(dest)
     dest = resolve_under_issues(issues, dest)
     removed: list[Path] = []

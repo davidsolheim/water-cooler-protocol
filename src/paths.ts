@@ -27,15 +27,26 @@ export function wcpDirNames(root: string): { canonical: boolean; legacy: boolean
   };
 }
 
-export function wcpDirName(root: string): string {
-  const { canonical, legacy } = wcpDirNames(root);
-  if (canonical) {
+export type WcpDirEntries = { canonical: boolean; legacy: boolean };
+
+/** Pick the queue folder. Both spellings at once is a second daemon, so refuse. */
+export function wcpDirNameFrom(entries: WcpDirEntries): string {
+  if (entries.canonical && entries.legacy) {
+    throw new Error(
+      `WCP refuses to run while both .wcp/ and .WCP/ exist. Stop any daemon, then migrate. If Git tracks the folder: ${MIGRATE_COMMAND}. If it is runtime only: ${MIGRATE_RUNTIME_COMMAND}`,
+    );
+  }
+  if (entries.canonical) {
     return WCP_DIR_NAME;
   }
-  if (legacy) {
+  if (entries.legacy) {
     return LEGACY_WCP_DIR_NAME;
   }
   return WCP_DIR_NAME;
+}
+
+export function wcpDirName(root: string): string {
+  return wcpDirNameFrom(wcpDirNames(root));
 }
 
 export function usingLegacyWcpDir(root: string): boolean {
@@ -62,6 +73,26 @@ export function isWcpTreePath(rel: string): boolean {
 
 export function legacyMigrationLine(): string {
   return `WCP: this checkout still uses .WCP/. If Git tracks the folder: ${MIGRATE_COMMAND}. If it is runtime only: ${MIGRATE_RUNTIME_COMMAND}`;
+}
+
+/** Doctor text for one checkout. Dual directories exit non-zero and do not choose a folder. */
+export function doctorReport(entries: WcpDirEntries): { code: number; lines: string[] } {
+  if (entries.canonical && entries.legacy) {
+    return {
+      code: 1,
+      lines: [
+        "wcp: both .wcp/ and .WCP/ exist. Stop any daemon before migrating. WCP will not choose one.",
+        legacyMigrationLine(),
+      ],
+    };
+  }
+  const state = entries.canonical ? "canonical" : entries.legacy ? "legacy" : "absent";
+  const label = entries.canonical || !entries.legacy ? ".wcp" : ".WCP";
+  const lines = [`wcp: directory ${label} (${state})`];
+  if (entries.legacy && !entries.canonical) {
+    lines.push(legacyMigrationLine());
+  }
+  return { code: 0, lines };
 }
 
 export function findRepoRoot(cwd: string = process.cwd()): string {
