@@ -606,6 +606,30 @@ class CodexFollowupTests(unittest.TestCase):
         )
         self.assertFalse(apply.notion_filled(text))
 
+    def test_fill_notion_ids_keeps_an_existing_page_id(self) -> None:
+        apply = load_script("apply-notion-ids.py")
+        original = (
+            "---\n"
+            'id: "0007"\n'
+            'linear_id: "SODA-7"\n'
+            'notion_page_id: "page-7"\n'
+            "notion_url:\n"
+            "---\n\n"
+            "body\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            dest = issues / "0007.md"
+            dest.write_text(original, encoding="utf-8")
+            self.assertTrue(
+                apply.fill_notion_ids(issues.parent, dest, "other-page", "https://notion.example/7")
+            )
+            written = dest.read_text(encoding="utf-8")
+            self.assertIn('notion_page_id: "page-7"', written)
+            self.assertIn('notion_url: "https://notion.example/7"', written)
+            self.assertNotIn("other-page", written)
+
     def test_include_in_batch_skips_native_tickets(self) -> None:
         batches = load_script("build-notion-batches.py")
         native = "id: 0123\nstatus: open\n"

@@ -248,6 +248,12 @@ A blanket `.wcp/` or `.WCP/` ignore is removed when init runs, because it would 
 git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp
 ```
 
+If Git reports that the source directory is empty because the folder holds only untracked runtime files, use the same two steps without Git:
+
+```
+mv .WCP .wcp-tmp && mv .wcp-tmp .wcp
+```
+
 Two steps, because a case-insensitive volume treats those names as one directory. Hooks allow `issues/` under either spelling and reject every other path under either folder. While the checkout is still on `.WCP/`, init also writes the four occupancy gitignore lines with that spelling.
 
 ### Ticket lease

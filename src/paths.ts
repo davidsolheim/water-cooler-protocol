@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /** Canonical queue folder. */
@@ -7,6 +7,8 @@ export const WCP_DIR_NAME = ".wcp";
 export const LEGACY_WCP_DIR_NAME = ".WCP";
 
 export const MIGRATE_COMMAND = "git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp";
+/** Git refuses `git mv` when the legacy folder has no tracked files. */
+export const MIGRATE_RUNTIME_COMMAND = "mv .WCP .wcp-tmp && mv .wcp-tmp .wcp";
 
 function dirNames(root: string): string[] {
   try {
@@ -42,7 +44,11 @@ export function usingLegacyWcpDir(root: string): boolean {
 }
 
 export function wcpDir(root: string): string {
-  return join(root, wcpDirName(root));
+  const dir = join(root, wcpDirName(root));
+  if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) {
+    throw new Error(`WCP refuses a symlink at ${dir}`);
+  }
+  return dir;
 }
 
 export function isWcpTreePath(rel: string): boolean {
@@ -55,7 +61,7 @@ export function isWcpTreePath(rel: string): boolean {
 }
 
 export function legacyMigrationLine(): string {
-  return `WCP: this checkout still uses .WCP/. Migrate with: ${MIGRATE_COMMAND}`;
+  return `WCP: this checkout still uses .WCP/. If Git tracks the folder: ${MIGRATE_COMMAND}. If it is runtime only: ${MIGRATE_RUNTIME_COMMAND}`;
 }
 
 export function findRepoRoot(cwd: string = process.cwd()): string {

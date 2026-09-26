@@ -408,6 +408,10 @@ def replace_issue_file(issues: Path, dest: Path, body: str, linear_id: str) -> l
     dest = parent / dest.name
     if dest.is_symlink():
         dest.unlink()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    temporary = dest.with_name(dest.name + ".wcp-tmp")
+    temporary.write_text(body, encoding="utf-8")
+    temporary.replace(dest)
     dest = resolve_under_issues(issues, dest)
     removed: list[Path] = []
     dest_key = dest.resolve()
@@ -423,10 +427,6 @@ def replace_issue_file(issues: Path, dest: Path, body: str, linear_id: str) -> l
                 continue
             path.unlink()
             removed.append(path)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.is_symlink():
-        dest.unlink()
-    dest.write_text(body, encoding="utf-8")
     return removed
 
 

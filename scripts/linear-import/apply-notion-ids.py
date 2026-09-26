@@ -37,23 +37,31 @@ def notion_filled(text: str) -> bool:
 
 def fill_notion_ids(root: Path, path: Path, page_id: str, url: str) -> bool:
     text = path.read_text(encoding="utf-8")
-    if notion_filled(text):
+    front = frontmatter_block(text)
+    has_page = bool(front_value(front, "notion_page_id"))
+    has_url = bool(front_value(front, "notion_url"))
+    if has_page and has_url:
         return False
-    text2, n1 = re.subn(
-        r"(?m)^notion_page_id:\s*$",
-        f"notion_page_id: {json.dumps(page_id)}",
-        text,
-        count=1,
-    )
-    text3, n2 = re.subn(
-        r"(?m)^notion_url:\s*$",
-        f"notion_url: {json.dumps(url)}",
-        text2,
-        count=1,
-    )
-    if n1 != 1 or n2 != 1:
-        raise SystemExit(f"frontmatter slots missing in {path}")
-    write_under_issues(root, path, text3)
+    updated = text
+    if not has_page:
+        updated, n1 = re.subn(
+            r"(?m)^notion_page_id:\s*$",
+            f"notion_page_id: {json.dumps(page_id)}",
+            updated,
+            count=1,
+        )
+        if n1 != 1:
+            raise SystemExit(f"notion_page_id slot missing in {path}")
+    if not has_url:
+        updated, n2 = re.subn(
+            r"(?m)^notion_url:\s*$",
+            f"notion_url: {json.dumps(url)}",
+            updated,
+            count=1,
+        )
+        if n2 != 1:
+            raise SystemExit(f"notion_url slot missing in {path}")
+    write_under_issues(root, path, updated)
     return True
 
 

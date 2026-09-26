@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureGitignore, installHooks, listWorktreeFiles, PRE_COMMIT_HOOK, PRE_PUSH_HOOK } from "../src/git.ts";
-import { usingLegacyWcpDir, wcpDirName } from "../src/paths.ts";
+import { ensureGitignore, installHooks, listWorktreeFiles, occupancyIgnoreLines, PRE_COMMIT_HOOK, PRE_PUSH_HOOK } from "../src/git.ts";
+import { legacyMigrationLine, MIGRATE_RUNTIME_COMMAND, usingLegacyWcpDir, wcpDir, wcpDirName } from "../src/paths.ts";
 import { gitRepo } from "./helpers.ts";
 
 const dirs: string[] = [];
@@ -81,6 +82,40 @@ describe("gitignore and hooks", () => {
     expect(lines).toContain("node_modules/");
     expect(git(root, ["check-ignore", "-q", ".WCP/RUN.md"]).exitCode).toBe(0);
     expect(git(root, ["check-ignore", "-q", ".WCP/issues/open/0123-rotate-refresh-token.md"]).exitCode).toBe(1);
+  });
+
+  test("occupancy ignores include legacy lines whenever .WCP exists", () => {
+    const both = occupancyIgnoreLines(true);
+    expect(both).toContain(".wcp/RUN.md");
+    expect(both).toContain(".WCP/RUN.md");
+    expect(occupancyIgnoreLines(false)).not.toContain(".WCP/RUN.md");
+  });
+
+  test("ensureGitignore drops root-anchored blanket queue ignores", () => {
+    const root = gitRepo();
+    dirs.push(root);
+    writeFileSync(join(root, ".gitignore"), "node_modules/\n/.wcp/\n/.WCP/\n");
+    ensureGitignore(root);
+    const lines = readFileSync(join(root, ".gitignore"), "utf8").split("\n");
+    expect(lines).not.toContain("/.wcp/");
+    expect(lines).not.toContain("/.WCP/");
+    expect(lines).toContain(".wcp/RUN.md");
+    expect(git(root, ["check-ignore", "-q", ".wcp/issues/open/0123.md"]).exitCode).toBe(1);
+  });
+
+  test("legacy migration names a runtime mv when git mv cannot see files", () => {
+    const line = legacyMigrationLine();
+    expect(line).toContain("git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp");
+    expect(line).toContain(MIGRATE_RUNTIME_COMMAND);
+  });
+
+  test("wcpDir refuses a symlinked queue directory", () => {
+    const root = gitRepo();
+    dirs.push(root);
+    const outside = mkdtempSync(join(tmpdir(), "wcp-out-"));
+    dirs.push(outside);
+    symlinkSync(outside, join(root, ".wcp"));
+    expect(() => wcpDir(root)).toThrow(/symlink/);
   });
 
   test("wcpDirName uses .wcp when that directory entry exists", () => {

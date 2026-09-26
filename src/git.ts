@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { barrelsPath, isWcpTreePath, usingLegacyWcpDir } from "./paths.ts";
+import { barrelsPath, isWcpTreePath, wcpDirNames } from "./paths.ts";
 
 export const DEFAULT_BARRELS = `package-lock.json
 pnpm-lock.yaml
@@ -28,7 +28,22 @@ export const LEGACY_OCCUPANCY_GITIGNORE = [
   ".WCP/*.sqlite-shm",
 ] as const;
 
-const BLANKET_IGNORE = new Set([".WCP/", ".WCP", ".wcp/", ".wcp"]);
+const BLANKET_IGNORE = new Set([
+  ".WCP/",
+  ".WCP",
+  ".wcp/",
+  ".wcp",
+  "/.WCP/",
+  "/.WCP",
+  "/.wcp/",
+  "/.wcp",
+]);
+
+export function occupancyIgnoreLines(legacyPresent: boolean): readonly string[] {
+  return legacyPresent
+    ? [...OCCUPANCY_GITIGNORE, ...LEGACY_OCCUPANCY_GITIGNORE]
+    : OCCUPANCY_GITIGNORE;
+}
 
 export const PRE_COMMIT_HOOK = `#!/bin/sh
 # WCP: commit .wcp/issues/ only. Legacy .WCP/issues/ is the same queue.
@@ -139,10 +154,7 @@ export function ensureGitignore(repoRoot: string): void {
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const lines = existing.split("\n");
   const filtered = lines.filter((line) => !BLANKET_IGNORE.has(line));
-  const want = [
-    ...OCCUPANCY_GITIGNORE,
-    ...(usingLegacyWcpDir(repoRoot) ? LEGACY_OCCUPANCY_GITIGNORE : []),
-  ];
+  const want = occupancyIgnoreLines(wcpDirNames(repoRoot).legacy);
   const present = new Set(filtered);
   const missing = want.filter((line) => !present.has(line));
   const removedBlanket = filtered.length !== lines.length;
