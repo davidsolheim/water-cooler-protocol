@@ -8,6 +8,8 @@ import json
 import re
 from pathlib import Path
 
+from wcp_paths import issues_root
+
 
 def grab(front: str, key: str):
     match = re.search(rf"^{re.escape(key)}: (.*)$", front, re.M)
@@ -46,7 +48,7 @@ def main() -> None:
     if args.batch < 1 or args.batch > 80:
         raise SystemExit("--batch must be from 1 to 80")
 
-    root = args.repo / ".wcp" / "issues"
+    root = issues_root(args.repo)
     pages = []
     index = []
     for path in sorted(root.rglob("*.md")):

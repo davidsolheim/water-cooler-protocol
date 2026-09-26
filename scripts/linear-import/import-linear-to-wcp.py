@@ -17,8 +17,9 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
+from wcp_paths import QUEUE_FOLDERS as FOLDERS, issues_root, parse_linear_id
+
 API = "https://api.linear.app/graphql"
-FOLDERS = ("open", "in-progress", "in-review", "done", "canceled", "blocked")
 QUERY = """
 query($cursor: String, $teams: [String!]) {
   issues(
@@ -353,6 +354,27 @@ def filename_for(issue: dict, wcp_id: str) -> str:
     return f"{wcp_id}-{issue['identifier'].lower()}-{slug(issue.get('title') or '')}.md"
 
 
+def replace_issue_file(issues: Path, dest: Path, body: str, linear_id: str) -> list[Path]:
+    """Write dest and delete other markdown files that already carry this linear_id."""
+    removed: list[Path] = []
+    dest_key = dest.resolve()
+    if issues.exists():
+        for path in list(issues.rglob("*.md")):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if parse_linear_id(text) != linear_id:
+                continue
+            if path.resolve() == dest_key:
+                continue
+            path.unlink()
+            removed.append(path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(body, encoding="utf-8")
+    return removed
+
+
 def build_summary(found: list[dict], assigned: dict[str, str], notes: list[str], rule: str) -> dict:
     status_counts: Counter[str] = Counter()
     linear_counts: Counter[str] = Counter()
@@ -459,7 +481,11 @@ def main() -> None:
     )
     parser.add_argument("--config", type=Path, default=Path.home() / ".grok" / "config.toml")
     parser.add_argument("--dry-run", action="store_true", help="Fetch and print counts. Write nothing")
-    parser.add_argument("--force", action="store_true", help="Overwrite issue files that already exist")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace existing files for the same linear_id (status or slug changes included)",
+    )
     parser.add_argument("--expect-total", type=int)
     parser.add_argument("--expect-open", type=int)
     parser.add_argument("--expect-done", type=int)
@@ -499,24 +525,25 @@ def main() -> None:
     if args.dry_run:
         return
 
-    issues_root = args.repo / ".wcp" / "issues"
-    existing = list(issues_root.rglob("*.md")) if issues_root.exists() else []
+    root = issues_root(args.repo)
+    existing = list(root.rglob("*.md")) if root.exists() else []
     if existing and not args.force:
         raise SystemExit(
-            f"{len(existing)} issue files already exist under {issues_root}. Pass --force to overwrite."
+            f"{len(existing)} issue files already exist under {root}. Pass --force to overwrite."
         )
     for folder in FOLDERS:
-        (issues_root / folder).mkdir(parents=True, exist_ok=True)
+        (root / folder).mkdir(parents=True, exist_ok=True)
 
     written = 0
     for issue in sorted(found, key=lambda item: assigned[item["identifier"]]):
         state = issue.get("state") or {}
         status, reason = map_status(state.get("type") or "", state.get("name") or "")
         wcp_id = assigned[issue["identifier"]]
-        path = issues_root / status / filename_for(issue, wcp_id)
-        path.write_text(render(issue, wcp_id, status, reason), encoding="utf-8")
+        linear_id = issue["identifier"]
+        path = root / status / filename_for(issue, wcp_id)
+        replace_issue_file(root, path, render(issue, wcp_id, status, reason), linear_id)
         written += 1
-    print(json.dumps({"written": written, "root": str(issues_root)}))
+    print(json.dumps({"written": written, "root": str(root)}))
 
 
 if __name__ == "__main__":

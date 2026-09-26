@@ -8,6 +8,8 @@ import json
 import re
 from pathlib import Path
 
+from wcp_paths import issues_root
+
 
 def pages_from(data) -> list[dict]:
     if isinstance(data, list):
@@ -61,7 +63,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    root = args.repo / ".wcp" / "issues"
+    root = issues_root(args.repo)
     found = load_pages([args.results])
     by_id: dict[str, Path] = {}
     filled = 0

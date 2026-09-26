@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import tomllib
 import urllib.error
@@ -13,14 +12,32 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from wcp_paths import (
+    QUEUE_FOLDERS,
+    issues_root,
+    parse_linear_id,
+    parse_queue_folders,
+    require_linear_identifier,
+    resolve_under_issues,
+)
+
 API = "https://api.linear.app/graphql"
-FOLDERS = ("open", "in-progress", "in-review", "done", "canceled", "blocked")
-QUERY = """
-query($id: String!) {
-  issue(id: $id) {
-    comments(first: 50) {
-      pageInfo { hasNextPage }
-      nodes { body createdAt user { name } }
+COMMENTS_BATCH_SIZE = 50
+COMMENTS_BATCH_QUERY = """
+query($ids: [String!]!, $cursor: String) {
+  issues(
+    first: 50
+    after: $cursor
+    includeArchived: true
+    filter: { identifier: { in: $ids } }
+  ) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      identifier
+      comments(first: 50) {
+        pageInfo { hasNextPage }
+        nodes { body createdAt user { name } }
+      }
     }
   }
 }
@@ -49,26 +66,56 @@ def load_token(config_path: Path, server: str) -> str:
     return raw
 
 
-def graphql(token: str, identifier: str) -> dict:
-    payload = json.dumps({"query": QUERY, "variables": {"id": identifier}}).encode()
+def comments_batch_payload(ids: list[str], cursor: str | None = None) -> dict:
+    return {
+        "query": COMMENTS_BATCH_QUERY,
+        "variables": {"ids": list(ids), "cursor": cursor},
+    }
+
+
+def chunk_identifiers(ids: list[str], size: int = COMMENTS_BATCH_SIZE) -> list[list[str]]:
+    if size < 1:
+        raise ValueError("batch size must be >= 1")
+    return [list(ids[i : i + size]) for i in range(0, len(ids), size)]
+
+
+def graphql(token: str, payload: dict) -> dict:
     req = urllib.request.Request(
         API,
-        data=payload,
+        data=json.dumps(payload).encode(),
         headers={"Authorization": token, "Content-Type": "application/json"},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             body = json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"{identifier}: Linear HTTP {exc.code}") from None
+        raise RuntimeError(f"Linear HTTP {exc.code}") from None
     if body.get("errors"):
         messages = [err.get("message", "graphql error") for err in body["errors"]]
-        raise RuntimeError(identifier + ": " + "; ".join(messages))
-    issue = body.get("data", {}).get("issue")
-    if not issue:
-        raise RuntimeError(f"{identifier}: Linear issue not found")
-    return issue["comments"]
+        raise RuntimeError("Linear query failed: " + "; ".join(messages))
+    return body.get("data") or {}
+
+
+def fetch_comments_for_ids(token: str, ids: list[str]) -> dict[str, dict]:
+    found: dict[str, dict] = {}
+    cursor = None
+    while True:
+        page = (graphql(token, comments_batch_payload(ids, cursor)).get("issues") or {})
+        for node in page.get("nodes") or []:
+            ident = node.get("identifier")
+            if ident:
+                found[ident] = node["comments"]
+        page_info = page.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+        if not cursor:
+            break
+    missing = [ident for ident in ids if ident not in found]
+    if missing:
+        raise RuntimeError("Linear comments missing for " + ", ".join(missing))
+    return found
 
 
 def comment_block(identifier: str, comments: dict) -> tuple[str, int, bool]:
@@ -92,6 +139,27 @@ def comment_block(identifier: str, comments: dict) -> tuple[str, int, bool]:
     return "\n".join(lines), len(nodes), truncated
 
 
+def identifier_from_issue(path: Path, text: str) -> str:
+    if len(text.split("---", 2)) < 3:
+        raise ValueError(f"missing frontmatter in {path.name}")
+    ident = parse_linear_id(text)
+    if not ident:
+        raise ValueError(f"missing linear_id in {path.name}")
+    return require_linear_identifier(ident)
+
+
+def collect_pending(root: Path, folders: list[str]) -> list[tuple[Path, str]]:
+    pending: list[tuple[Path, str]] = []
+    for folder in folders:
+        for path in sorted((root / folder).glob("*.md")):
+            resolved = resolve_under_issues(root, path)
+            text = resolved.read_text(encoding="utf-8")
+            if "\n## Linear comments\n" in text:
+                continue
+            pending.append((resolved, identifier_from_issue(resolved, text)))
+    return pending
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True, type=Path)
@@ -99,22 +167,22 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=Path.home() / ".grok" / "config.toml")
     parser.add_argument(
         "--folders",
-        default=",".join(FOLDERS),
-        help="Comma-separated queue folders. Default: every status folder",
+        default=",".join(QUEUE_FOLDERS),
+        help="Comma-separated queue folders. Only open, in-progress, in-review, done, canceled, blocked",
     )
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--dry-run", action="store_true", help="Count files that still need comments")
     args = parser.parse_args()
 
-    folders = [part.strip() for part in args.folders.split(",") if part.strip()]
-    root = args.repo / ".wcp" / "issues"
-    pending: list[Path] = []
-    for folder in folders:
-        for path in sorted((root / folder).glob("*.md")):
-            text = path.read_text(encoding="utf-8")
-            if "\n## Linear comments\n" in text:
-                continue
-            pending.append(path)
+    try:
+        folders = parse_queue_folders(args.folders)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
+    root = issues_root(args.repo)
+    try:
+        pending = collect_pending(root, folders)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
     print(json.dumps({"pending": len(pending), "folders": folders}))
     if args.dry_run or not pending:
         return
@@ -124,35 +192,49 @@ def main() -> None:
     empty = 0
     truncated = 0
     errors: list[str] = []
+    unique_ids: list[str] = []
+    seen: set[str] = set()
+    for _path, ident in pending:
+        if ident not in seen:
+            unique_ids.append(ident)
+            seen.add(ident)
+    comments_by_id: dict[str, dict] = {}
 
-    def work(path: Path) -> tuple[Path, str, int, bool]:
-        text = path.read_text(encoding="utf-8")
-        front = text.split("---", 2)[1]
-        match = re.search(r'^linear_id: "(.*)"$', front, re.M)
-        if not match:
-            raise RuntimeError(f"missing linear_id in {path.name}")
-        identifier = match.group(1)
-        comments = graphql(token, identifier)
-        block, count, was_truncated = comment_block(identifier, comments)
-        return path, text.rstrip() + "\n" + block, count, was_truncated
+    def load_chunk(chunk: list[str]) -> dict[str, dict]:
+        return fetch_comments_for_ids(token, chunk)
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-        futures = {pool.submit(work, path): path for path in pending}
+        chunks = chunk_identifiers(unique_ids)
+        futures = {pool.submit(load_chunk, chunk): chunk for chunk in chunks}
         for future in as_completed(futures):
-            path = futures[future]
+            chunk = futures[future]
             try:
-                target, text, count, was_truncated = future.result()
-            except Exception as exc:  # noqa: BLE001 — surface the identifier, never the token
-                errors.append(f"{path.name}: {exc}")
-                print(f"FAILED {path.name}", flush=True)
-                continue
-            target.write_text(text, encoding="utf-8")
-            written += 1
-            if count == 0:
-                empty += 1
-            if was_truncated:
-                truncated += 1
-            print(f"{target.name} comments={count}", flush=True)
+                comments_by_id.update(future.result())
+            except Exception as exc:  # noqa: BLE001 — surface identifiers, never the token
+                label = chunk[0] if len(chunk) == 1 else f"{chunk[0]}..{chunk[-1]}"
+                errors.append(f"batch {label}: {exc}")
+                print(f"FAILED batch {label}", flush=True)
+
+    for path, ident in pending:
+        comments = comments_by_id.get(ident)
+        if comments is None:
+            errors.append(f"{path.name}: comments not fetched for {ident}")
+            print(f"FAILED {path.name}", flush=True)
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            block, count, was_truncated = comment_block(ident, comments)
+            path.write_text(text.rstrip() + "\n" + block, encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 — surface the identifier, never the token
+            errors.append(f"{path.name}: {exc}")
+            print(f"FAILED {path.name}", flush=True)
+            continue
+        written += 1
+        if count == 0:
+            empty += 1
+        if was_truncated:
+            truncated += 1
+        print(f"{path.name} comments={count}", flush=True)
 
     del token
     print(json.dumps({"written": written, "empty": empty, "truncated": truncated, "failed": len(errors)}))
