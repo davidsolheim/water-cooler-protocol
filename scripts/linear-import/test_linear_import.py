@@ -579,6 +579,33 @@ class CodexFollowupTests(unittest.TestCase):
             )
             self.assertIsNone(importer.id_owned_by_other(issues.parent, "0008", "SODA-8"))
 
+    def test_carry_notion_keeps_an_existing_page_id(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(
+                '---\nid: "0007"\nlinear_id: "SODA-7"\nnotion_page_id: "page-7"\nnotion_url: "https://notion.example/7"\n---\n\n',
+                encoding="utf-8",
+            )
+            fresh = '---\nnotion_page_id:\nnotion_url:\n---\n\n'
+            carried = importer.carry_notion(fresh, issues.parent, "SODA-7")
+            self.assertIn('notion_page_id: "page-7"', carried)
+            self.assertIn('notion_url: "https://notion.example/7"', carried)
+
+    def test_notion_filled_ignores_a_body_line(self) -> None:
+        apply = load_script("apply-notion-ids.py")
+        text = (
+            "---\n"
+            'id: "0007"\n'
+            'linear_id: "SODA-7"\n'
+            "notion_page_id:\n"
+            "notion_url:\n"
+            "---\n\n"
+            'The description mentions notion_page_id: "already" and notion_url: "https://example.com".\n'
+        )
+        self.assertFalse(apply.notion_filled(text))
+
     def test_include_in_batch_skips_native_tickets(self) -> None:
         batches = load_script("build-notion-batches.py")
         native = "id: 0123\nstatus: open\n"

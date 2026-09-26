@@ -363,6 +363,25 @@ def filename_for(issue: dict, wcp_id: str) -> str:
     return f"{wcp_id}-{ident.lower()}-{slug(issue.get('title') or '')}.md"
 
 
+def carry_notion(body: str, issues: Path, linear_id: str) -> str:
+    if not issues.exists():
+        return body
+    for path in issues.rglob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        if parse_linear_id(text) != linear_id:
+            continue
+        front = frontmatter_block(text)
+        page = str(front_value(front, "notion_page_id") or "")
+        url = str(front_value(front, "notion_url") or "")
+        if not page:
+            continue
+        body = body.replace("notion_page_id:", f"notion_page_id: {json.dumps(page)}", 1)
+        if url:
+            body = body.replace("notion_url:", f"notion_url: {json.dumps(url)}", 1)
+        return body
+    return body
+
+
 def id_owned_by_other(issues: Path, wcp_id: str, linear_id: str) -> Path | None:
     if not issues.exists():
         return None
@@ -570,20 +589,25 @@ def main() -> None:
     for folder in FOLDERS:
         (root / folder).mkdir(parents=True, exist_ok=True)
 
-    written = 0
+    planned = []
     for issue in sorted(found, key=lambda item: assigned[item["identifier"]]):
         state = issue.get("state") or {}
         status, reason = map_status(state.get("type") or "", state.get("name") or "")
         wcp_id = assigned[issue["identifier"]]
         linear_id = require_linear_identifier(issue["identifier"])
-        path = root / status / filename_for(issue, wcp_id)
         taken = id_owned_by_other(root, wcp_id, linear_id)
         if taken is not None:
             raise SystemExit(
                 f"WCP id {wcp_id} is already used by {taken} and is not {linear_id}. "
                 "Move that ticket or pick another id before --force."
             )
-        replace_issue_file(root, path, render(issue, wcp_id, status, reason), linear_id)
+        planned.append((issue, status, reason, wcp_id, linear_id))
+
+    written = 0
+    for issue, status, reason, wcp_id, linear_id in planned:
+        path = root / status / filename_for(issue, wcp_id)
+        body = carry_notion(render(issue, wcp_id, status, reason), root, linear_id)
+        replace_issue_file(root, path, body, linear_id)
         written += 1
     print(json.dumps({"written": written, "root": str(root)}))
 

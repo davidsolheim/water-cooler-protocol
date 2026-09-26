@@ -15,11 +15,13 @@ from pathlib import Path
 from wcp_paths import (
     QUEUE_FOLDERS,
     front_value,
+    frontmatter_block,
     issues_root,
     parse_linear_id,
     parse_queue_folders,
     require_linear_identifier,
     resolve_under_issues,
+    write_under_issues,
 )
 
 API = "https://api.linear.app/graphql"
@@ -207,9 +209,15 @@ def collect_pending(
     pending: list[tuple[Path, str]] = []
     for folder in folders:
         for path in sorted((root / folder).glob("*.md")):
-            resolved = resolve_under_issues(root, path)
-            text = resolved.read_text(encoding="utf-8")
-            front = text.split("---", 2)[1] if text.count("---") >= 2 else ""
+            try:
+                resolved = resolve_under_issues(root, path)
+                text = resolved.read_text(encoding="utf-8")
+            except (OSError, ValueError) as exc:
+                if errors is not None:
+                    errors.append(f"{path.name}: {exc}")
+                print(f"FAILED {path.name}", flush=True)
+                continue
+            front = frontmatter_block(text)
             if front_value(front, "linear_comments"):
                 continue
             try:
@@ -302,7 +310,7 @@ def main() -> None:
             text = path.read_text(encoding="utf-8")
             block, count, was_truncated = comment_block(ident, comments)
             marked = mark_comments_fetched(text)
-            path.write_text(marked.rstrip() + "\n" + block, encoding="utf-8")
+            write_under_issues(root, path, marked.rstrip() + "\n" + block)
         except Exception as exc:  # noqa: BLE001 — surface the identifier, never the token
             errors.append(f"{path.name}: {exc}")
             print(f"FAILED {path.name}", flush=True)

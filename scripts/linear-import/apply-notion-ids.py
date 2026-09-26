@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from wcp_paths import front_value, issues_root, write_under_issues
+from wcp_paths import front_value, frontmatter_block, issues_root, parse_linear_id, write_under_issues
 
 
 def pages_from(data) -> list[dict]:
@@ -30,9 +30,14 @@ def pages_from(data) -> list[dict]:
     return []
 
 
+def notion_filled(text: str) -> bool:
+    front = frontmatter_block(text)
+    return bool(front_value(front, "notion_page_id")) and bool(front_value(front, "notion_url"))
+
+
 def fill_notion_ids(root: Path, path: Path, page_id: str, url: str) -> bool:
     text = path.read_text(encoding="utf-8")
-    if re.search(r'^notion_page_id: ".+"$', text, re.M):
+    if notion_filled(text):
         return False
     text2, n1 = re.subn(
         r"(?m)^notion_page_id:\s*$",
@@ -113,7 +118,9 @@ def main() -> None:
     missing = []
     for wcp, path in by_id.items():
         text = path.read_text(encoding="utf-8")
-        if re.search(r'^notion_page_id: ".+"$', text, re.M):
+        if not parse_linear_id(text):
+            continue
+        if notion_filled(text):
             filled += 1
         else:
             missing.append(wcp)
@@ -136,9 +143,9 @@ def main() -> None:
     missing_after = []
     for wcp, path in queue_by_id(root).items():
         text = path.read_text(encoding="utf-8")
-        if re.search(r'^notion_page_id: ".+"$', text, re.M) and re.search(
-            r'^notion_url: "https?://.+"$', text, re.M
-        ):
+        if not parse_linear_id(text):
+            continue
+        if notion_filled(text):
             filled_after += 1
         else:
             missing_after.append(wcp)
