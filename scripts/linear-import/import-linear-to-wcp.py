@@ -444,7 +444,16 @@ def carry_notion(body: str, issues: Path, linear_id: str) -> str:
     return body
 
 
-WCP_OWNED_FIELDS = ("status", "assignee", "lease_expires", "files", "commit", "reason", "acceptance")
+WCP_OWNED_FIELDS = (
+    "status",
+    "assignee",
+    "lease_expires",
+    "files",
+    "commit",
+    "reason",
+    "acceptance",
+    "scope",
+)
 
 
 def existing_issue_text(issues: Path, linear_id: str) -> str:
@@ -581,6 +590,15 @@ def replace_issue_file(issues: Path, dest: Path, body: str, linear_id: str) -> l
     dest = parent / dest.name
     if dest.is_symlink():
         dest.unlink()
+    elif dest.exists():
+        try:
+            current = dest.read_text(encoding="utf-8")
+        except OSError as err:
+            raise ValueError(f"refusing to replace {dest}") from err
+        current_linear = parse_linear_id(current)
+        if current_linear != linear_id:
+            owner = current_linear or "another ticket"
+            raise ValueError(f"{dest} belongs to {owner}; refusing to replace it")
     dest.parent.mkdir(parents=True, exist_ok=True)
     temporary = dest.with_name(dest.name + ".wcp-tmp")
     write_exclusive_temp(temporary, body)

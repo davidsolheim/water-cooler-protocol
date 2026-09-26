@@ -208,6 +208,26 @@ class ForceReplaceTests(unittest.TestCase):
             self.assertIn("imported", dest.read_text(encoding="utf-8"))
             self.assertFalse(temporary.exists())
 
+    def test_replace_issue_file_refuses_an_unrelated_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues"
+            dest = issues / "open" / "0007-soda-7-short-title.md"
+            dest.parent.mkdir(parents=True)
+            native = "---\nid: 0123\nstatus: open\n---\n\nnative ticket\n"
+            dest.write_text(native, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                self.importer.replace_issue_file(
+                    issues, dest, issue_md("SODA-7"), "SODA-7"
+                )
+            self.assertEqual(dest.read_text(encoding="utf-8"), native)
+            other = issue_md("HR-1", "0007")
+            dest.write_text(other, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                self.importer.replace_issue_file(
+                    issues, dest, issue_md("SODA-7"), "SODA-7"
+                )
+            self.assertEqual(dest.read_text(encoding="utf-8"), other)
+
 
 class DestSymlinkWriteTests(unittest.TestCase):
     def _symlink_dest(self, tmp: str, outside_text: str) -> tuple[Path, Path, Path]:
@@ -849,6 +869,8 @@ class CodexFollowupTests(unittest.TestCase):
             self.assertIn("commit: abc123", kept)
             self.assertIn('reason: "Held for review."', kept)
             self.assertIn('acceptance: "Keep the local done definition."', kept)
+            self.assertIn('scope: "old scope"', front)
+            self.assertNotIn("Stay inside that description", front)
             self.assertNotIn("Updated Linear description for the forced import.", front)
             self.assertIn("New title from Linear", kept)
             self.assertIn("Updated Linear description for the forced import.", kept.split("---", 2)[2])
