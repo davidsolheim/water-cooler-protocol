@@ -558,7 +558,9 @@ def comments_section(text: str) -> str:
         )
     )
     if authors:
-        section = shield_comment_markers(body[authors[0].start() :].strip())
+        # A description can contain an earlier pasted copy. The importer appends
+        # the live block at the end of the file.
+        section = shield_comment_markers(body[authors[-1].start() :].strip())
         return f"{COMMENT_START}\n{section}\n{COMMENT_END}\n"
     empty = re.search(r"(?m)^## Linear comments\n\n_No Linear comments\._\s*\Z", body)
     if empty:
