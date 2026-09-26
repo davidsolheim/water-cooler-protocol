@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureGitignore, installHooks, listWorktreeFiles, occupancyIgnoreLines, PRE_COMMIT_HOOK, PRE_PUSH_HOOK } from "../src/git.ts";
-import { doctorReport, legacyMigrationLine, MIGRATE_COMMAND, MIGRATE_RUNTIME_COMMAND, usingLegacyWcpDir, wcpDir, wcpDirName, wcpDirNameFrom } from "../src/paths.ts";
+import { doctorReport, legacyMigrationLine, logPath, MIGRATE_COMMAND, MIGRATE_RUNTIME_COMMAND, usingLegacyWcpDir, wcpDir, wcpDirName, wcpDirNameFrom, writeRuntimeFile } from "../src/paths.ts";
 import { gitRepo } from "./helpers.ts";
 
 const dirs: string[] = [];
@@ -107,6 +107,20 @@ describe("gitignore and hooks", () => {
     const line = legacyMigrationLine();
     expect(line).toContain("git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp");
     expect(line).toContain(MIGRATE_RUNTIME_COMMAND);
+  });
+
+  test("writeRuntimeFile does not follow a symlinked runtime file", () => {
+    const root = gitRepo();
+    dirs.push(root);
+    const outside = mkdtempSync(join(tmpdir(), "wcp-out-"));
+    dirs.push(outside);
+    const target = join(outside, "secret");
+    writeFileSync(target, "keep me\n");
+    mkdirSync(join(root, ".wcp"));
+    symlinkSync(target, join(root, ".wcp", "wcpd.log"));
+    expect(() => logPath(root)).toThrow(/symlink/);
+    expect(() => writeRuntimeFile(join(root, ".wcp", "wcpd.log"), "")).toThrow(/symlink/);
+    expect(readFileSync(target, "utf8")).toBe("keep me\n");
   });
 
   test("wcpDir refuses a symlinked queue directory", () => {

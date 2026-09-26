@@ -1,6 +1,6 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import type { ActorName, LiveRow, RpcOk } from "./rpc.ts";
-import { modePath, runMdPath, wcpDir } from "./paths.ts";
+import { modePath, runMdPath, wcpDir, writeRuntimeFile } from "./paths.ts";
 
 function liveLine(row: LiveRow): string {
   const from = row.from_agent ?? "-";
@@ -54,6 +54,6 @@ export function writeView(
   look: Pick<RpcOk, "arch" | "branch" | "ttl_sec" | "live" | "names">,
 ): void {
   mkdirSync(wcpDir(repoRoot), { recursive: true });
-  writeFileSync(runMdPath(repoRoot), renderRunMd(look));
-  writeFileSync(modePath(repoRoot), "referee\n");
+  writeRuntimeFile(runMdPath(repoRoot), renderRunMd(look));
+  writeRuntimeFile(modePath(repoRoot), "referee\n");
 }

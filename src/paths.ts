@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync } from "node:fs";
+import { closeSync, constants, existsSync, lstatSync, openSync, readdirSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
 /** Canonical queue folder. */
@@ -106,32 +106,72 @@ export function findRepoRoot(cwd: string = process.cwd()): string {
   return proc.stdout.toString().trim();
 }
 
+/** A missing path is fine. A symlink is not, because later writes would follow it. */
+export function assertNotSymlink(path: string): string {
+  try {
+    if (lstatSync(path).isSymbolicLink()) {
+      throw new Error(`WCP refuses a symlink at ${path}`);
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("WCP refuses a symlink")) {
+      throw err;
+    }
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return path;
+    }
+    throw err;
+  }
+  return path;
+}
+
+export function writeRuntimeFile(path: string, data: string): void {
+  const target = assertNotSymlink(path);
+  const flags = constants.O_CREAT | constants.O_WRONLY | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0);
+  const fd = openSync(target, flags, 0o644);
+  try {
+    writeSync(fd, data);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function runtimeFile(root: string, name: string): string {
+  return assertNotSymlink(join(wcpDir(root), name));
+}
+
 export function sockPath(root: string): string {
-  return join(wcpDir(root), "wcp.sock");
+  return runtimeFile(root, "wcp.sock");
 }
 
 export function dbPath(root: string): string {
-  return join(wcpDir(root), "run.sqlite");
+  const path = runtimeFile(root, "run.sqlite");
+  assertNotSymlink(`${path}-wal`);
+  assertNotSymlink(`${path}-shm`);
+  return path;
 }
 
 export function lockPath(root: string): string {
-  return join(wcpDir(root), "wcpd.lock");
+  return runtimeFile(root, "wcpd.lock");
 }
 
 export function pidPath(root: string): string {
-  return join(wcpDir(root), "wcpd.pid");
+  return runtimeFile(root, "wcpd.pid");
 }
 
 export function runMdPath(root: string): string {
-  return join(wcpDir(root), "RUN.md");
+  return runtimeFile(root, "RUN.md");
 }
 
 export function modePath(root: string): string {
-  return join(wcpDir(root), "mode");
+  return runtimeFile(root, "mode");
+}
+
+export function logPath(root: string): string {
+  return runtimeFile(root, "wcpd.log");
 }
 
 export function barrelsPath(root: string): string {
-  return join(wcpDir(root), "barrels");
+  return runtimeFile(root, "barrels");
 }
 
 export function wcpReady(root: string): boolean {

@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { barrelsPath, isWcpTreePath, wcpDirNames } from "./paths.ts";
+import { barrelsPath, isWcpTreePath, wcpDirNames, writeRuntimeFile } from "./paths.ts";
 
 export const DEFAULT_BARRELS = `package-lock.json
 pnpm-lock.yaml
@@ -173,7 +173,7 @@ export function ensureGitignore(repoRoot: string): void {
 
 export function ensureBarrels(repoRoot: string): void {
   if (!existsSync(barrelsPath(repoRoot))) {
-    writeFileSync(barrelsPath(repoRoot), DEFAULT_BARRELS);
+    writeRuntimeFile(barrelsPath(repoRoot), DEFAULT_BARRELS);
   }
 }
 

@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 import { canConnect, rpc } from "./client.ts";
 import { startDaemon } from "./daemon.ts";
 import { ensureBarrels, ensureGitignore, installHooks } from "./git.ts";
@@ -9,9 +8,11 @@ import {
   findRepoRoot,
   legacyMigrationLine,
   usingLegacyWcpDir,
+  logPath,
   wcpDir,
   wcpDirName,
   wcpDirNames,
+  writeRuntimeFile,
 } from "./paths.ts";
 import { DEFAULT_TTL_SEC } from "./protocol.ts";
 import type { RpcMethod, RpcRequest, RpcResponse } from "./rpc.ts";
@@ -176,12 +177,12 @@ function daemonSpawnArgs(): string[] {
 
 function spawnDaemon(root: string): void {
   mkdirSync(wcpDir(root), { recursive: true });
-  const logPath = join(wcpDir(root), "wcpd.log");
-  writeFileSync(logPath, "");
+  const log = logPath(root);
+  writeRuntimeFile(log, "");
   const proc = Bun.spawn(daemonSpawnArgs(), {
     cwd: root,
     stdout: "ignore",
-    stderr: Bun.file(logPath),
+    stderr: Bun.file(log),
     stdin: "ignore",
     env: process.env,
     detached: true,

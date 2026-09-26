@@ -5,7 +5,6 @@ import {
   openSync,
   readFileSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import type { Database } from "bun:sqlite";
 import { openDb } from "./db.ts";
@@ -16,6 +15,7 @@ import {
   pidPath,
   sockPath,
   wcpDir,
+  writeRuntimeFile,
 } from "./paths.ts";
 import { absFromBoard, isoNow, pidAlive, sha256File } from "./protocol.ts";
 import { writeView } from "./render.ts";
@@ -34,7 +34,7 @@ function takeLock(root: string): number {
   const pid = pidPath(root);
   try {
     const fd = openSync(lock, "wx");
-    writeFileSync(pid, `${process.pid}\n`);
+    writeRuntimeFile(pid, `${process.pid}\n`);
     return fd;
   } catch {
     let stalePid = 0;
@@ -57,7 +57,7 @@ function takeLock(root: string): number {
       /* ignore */
     }
     const fd = openSync(lock, "wx");
-    writeFileSync(pid, `${process.pid}\n`);
+    writeRuntimeFile(pid, `${process.pid}\n`);
     return fd;
   }
 }
