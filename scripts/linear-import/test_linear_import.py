@@ -1085,6 +1085,40 @@ class CodexFollowupTests(unittest.TestCase):
             self.assertIn("First comment stays.", body)
             self.assertNotIn("decoy comment", body)
 
+    def test_refreshed_issue_ignores_a_description_sentinel_around_legacy_comments(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "<!-- wcp:linear-comments -->\n"
+            "decoy comment that must not replace the fetched comments\n"
+            "<!-- /wcp:linear-comments -->\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "First comment stays.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertIn("linear_comments: fetched", front)
+            self.assertIn("### Ada — 2026-09-01T00:00:00Z", body)
+            self.assertIn("First comment stays.", body)
+            self.assertNotIn("decoy comment", body)
+
     def test_refreshed_issue_drops_the_fetched_flag_when_comments_are_gone(self) -> None:
         importer = load_script("import-linear-to-wcp.py")
         old = (

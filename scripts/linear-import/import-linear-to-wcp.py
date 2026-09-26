@@ -550,7 +550,12 @@ def comments_section(text: str) -> str:
     start = body.rfind(COMMENT_START)
     finish = body.rfind(COMMENT_END)
     if start != -1 and finish > start:
-        return body[start : finish + len(COMMENT_END)].strip() + "\n"
+        chosen = body[start : finish + len(COMMENT_END)]
+        if re.search(
+            r"(?m)^## Linear comments\n\n(?:_No Linear comments\._|### .+ — \d{4}-\d{2}-\d{2})",
+            chosen,
+        ):
+            return chosen.strip() + "\n"
     authors = list(
         re.finditer(
             r"(?m)^## Linear comments\n\n### .+ — \d{4}-\d{2}-\d{2}",
