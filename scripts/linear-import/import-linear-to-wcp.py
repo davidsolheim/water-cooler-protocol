@@ -19,6 +19,8 @@ from pathlib import Path
 
 from wcp_paths import (
     QUEUE_FOLDERS as FOLDERS,
+    front_value,
+    frontmatter_block,
     issues_root,
     parse_linear_id,
     require_linear_identifier,
@@ -361,6 +363,19 @@ def filename_for(issue: dict, wcp_id: str) -> str:
     return f"{wcp_id}-{ident.lower()}-{slug(issue.get('title') or '')}.md"
 
 
+def id_owned_by_other(issues: Path, wcp_id: str, linear_id: str) -> Path | None:
+    if not issues.exists():
+        return None
+    for path in issues.rglob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        front = frontmatter_block(text)
+        if str(front_value(front, "id") or "") != wcp_id:
+            continue
+        if parse_linear_id(text) != linear_id:
+            return path
+    return None
+
+
 def replace_issue_file(issues: Path, dest: Path, body: str, linear_id: str) -> list[Path]:
     """Write dest and delete other markdown files that already carry this linear_id."""
     linear_id = require_linear_identifier(linear_id)
@@ -562,6 +577,12 @@ def main() -> None:
         wcp_id = assigned[issue["identifier"]]
         linear_id = require_linear_identifier(issue["identifier"])
         path = root / status / filename_for(issue, wcp_id)
+        taken = id_owned_by_other(root, wcp_id, linear_id)
+        if taken is not None:
+            raise SystemExit(
+                f"WCP id {wcp_id} is already used by {taken} and is not {linear_id}. "
+                "Move that ticket or pick another id before --force."
+            )
         replace_issue_file(root, path, render(issue, wcp_id, status, reason), linear_id)
         written += 1
     print(json.dumps({"written": written, "root": str(root)}))

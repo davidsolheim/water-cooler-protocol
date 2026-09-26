@@ -46,7 +46,16 @@ def wcp_dir(root: Path) -> Path:
 
 
 def issues_root(repo: Path) -> Path:
-    return wcp_dir(repo) / "issues"
+    queue = wcp_dir(repo)
+    root = queue / "issues"
+    if queue.is_symlink() or root.is_symlink():
+        raise ValueError(f"{root} must not be a symlink")
+    if root.exists():
+        resolved = root.resolve()
+        repo_abs = repo.resolve()
+        if not resolved.is_relative_to(repo_abs):
+            raise ValueError(f"{root} escapes the repository")
+    return root
 
 
 def parse_queue_folders(raw: str) -> list[str]:
@@ -84,8 +93,15 @@ def front_value(front: str, key: str):
     return raw
 
 
+def frontmatter_block(text: str) -> str:
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return ""
+    return parts[1]
+
+
 def parse_linear_id(text: str) -> str | None:
-    match = LINEAR_ID_LINE.search(text)
+    match = LINEAR_ID_LINE.search(frontmatter_block(text))
     if not match:
         return None
     raw = match.group(1).strip()

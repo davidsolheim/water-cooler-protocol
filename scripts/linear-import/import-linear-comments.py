@@ -14,6 +14,7 @@ from pathlib import Path
 
 from wcp_paths import (
     QUEUE_FOLDERS,
+    front_value,
     issues_root,
     parse_linear_id,
     parse_queue_folders,
@@ -181,6 +182,19 @@ def identifier_from_issue(path: Path, text: str) -> str | None:
     return require_linear_identifier(ident)
 
 
+def mark_comments_fetched(text: str) -> str:
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return text
+    front = parts[1]
+    if front_value(front, "linear_comments"):
+        return text
+    if not front.endswith("\n"):
+        front += "\n"
+    front += "linear_comments: fetched\n"
+    return f"---{front}---{parts[2]}"
+
+
 def collect_pending(
     root: Path,
     folders: list[str],
@@ -195,7 +209,8 @@ def collect_pending(
         for path in sorted((root / folder).glob("*.md")):
             resolved = resolve_under_issues(root, path)
             text = resolved.read_text(encoding="utf-8")
-            if "\n## Linear comments\n" in text:
+            front = text.split("---", 2)[1] if text.count("---") >= 2 else ""
+            if front_value(front, "linear_comments"):
                 continue
             try:
                 ident = identifier_from_issue(resolved, text)
@@ -286,7 +301,8 @@ def main() -> None:
         try:
             text = path.read_text(encoding="utf-8")
             block, count, was_truncated = comment_block(ident, comments)
-            path.write_text(text.rstrip() + "\n" + block, encoding="utf-8")
+            marked = mark_comments_fetched(text)
+            path.write_text(marked.rstrip() + "\n" + block, encoding="utf-8")
         except Exception as exc:  # noqa: BLE001 — surface the identifier, never the token
             errors.append(f"{path.name}: {exc}")
             print(f"FAILED {path.name}", flush=True)

@@ -28,6 +28,16 @@ def labels_of(front: str) -> list[str]:
     return []
 
 
+def include_in_batch(front: str) -> bool:
+    return bool(grab(front, "linear_id")) and not bool(grab(front, "notion_page_id"))
+
+
+def clear_generated_batches(out: Path) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    for stale in list(out.glob("batch-*.json")) + list(out.glob("index-*.json")):
+        stale.unlink()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True, type=Path)
@@ -48,9 +58,9 @@ def main() -> None:
     for path in sorted(root.rglob("*.md")):
         text = path.read_text(encoding="utf-8")
         front = text.split("---", 2)[1]
-        linear = grab(front, "linear_id")
-        if grab(front, "notion_page_id"):
+        if not include_in_batch(front):
             continue
+        linear = grab(front, "linear_id")
         title = grab(front, "title") or linear
         wcp = grab(front, "id")
         url = grab(front, "linear_url")
@@ -95,7 +105,7 @@ def main() -> None:
     if args.dry_run:
         return
 
-    args.out.mkdir(parents=True, exist_ok=True)
+    clear_generated_batches(args.out)
     batches = []
     for start in range(0, len(pages), args.batch):
         number = start // args.batch

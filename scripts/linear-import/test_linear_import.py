@@ -293,6 +293,25 @@ class DestSymlinkWriteTests(unittest.TestCase):
             self.assertNotIn('acceptance: "Acceptance criteria"', dest.read_text(encoding="utf-8"))
             self.assertEqual(outside.read_text(encoding="utf-8"), original)
 
+    def test_rewrite_acceptance_leaves_a_custom_definition(self) -> None:
+        fix = load_script("fix-wcp-acceptance.py")
+        original = (
+            "---\n"
+            'id: "0007"\n'
+            'linear_id: "SODA-7"\n'
+            'acceptance: "Rotate the refresh token and reject the old one."\n'
+            "---\n\n"
+            "## Summary\n\n"
+            "This summary sentence is long enough to become the real acceptance line.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            dest = issues / "0007.md"
+            dest.write_text(original, encoding="utf-8")
+            self.assertFalse(fix.rewrite_acceptance(issues.parent, dest))
+            self.assertEqual(dest.read_text(encoding="utf-8"), original)
+
 
 class AllowlistTests(unittest.TestCase):
     def test_queue_folders_are_the_six_status_names(self) -> None:
@@ -309,6 +328,10 @@ class AllowlistTests(unittest.TestCase):
         for raw in ("../../", "open/../done", "/tmp", "Open", "issues", "open,../done"):
             with self.assertRaises(ValueError):
                 parse_queue_folders(raw)
+
+    def test_parse_linear_id_ignores_a_body_line(self) -> None:
+        text = issue_md("SODA-7") + '\nlinear_id: "HR-1"\n'
+        self.assertEqual(parse_linear_id(text), "SODA-7")
 
     def test_linear_identifier_shape(self) -> None:
         self.assertTrue(is_linear_identifier("SODA-7"))
@@ -394,11 +417,19 @@ class CommentBatchTests(unittest.TestCase):
             done = open_dir / "0008-soda-8.md"
             pending.write_text(issue_md("SODA-7"), encoding="utf-8")
             done.write_text(
-                issue_md("SODA-8", "0008") + "\n## Linear comments\n\n_No Linear comments._\n",
+                issue_md("SODA-8", "0008").replace(
+                    "status: open\n",
+                    "status: open\nlinear_comments: fetched\n",
+                ),
+                encoding="utf-8",
+            )
+            described = open_dir / "0009-soda-9.md"
+            described.write_text(
+                issue_md("SODA-9", "0009") + "\n## Linear comments\n\nCopied from the Linear description.\n",
                 encoding="utf-8",
             )
             found = self.comments.collect_pending(root, ["open"], ["SODA"])
-            self.assertEqual([item[1] for item in found], ["SODA-7"])
+            self.assertEqual([item[1] for item in found], ["SODA-7", "SODA-9"])
             self.assertEqual(found[0][0].resolve(), pending.resolve())
 
     def test_parse_team_keys_requires_at_least_one(self) -> None:
@@ -529,6 +560,55 @@ class CommentBatchTests(unittest.TestCase):
         self.assertEqual(list(found), ["SODA-2"])
         self.assertNotIn("SODA-1", found)
         self.assertEqual(found["SODA-2"]["nodes"][0]["body"], "hi")
+
+
+class CodexFollowupTests(unittest.TestCase):
+    def test_id_owned_by_other_flags_a_native_ticket(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            native = issues / "0007-native.md"
+            native.write_text(
+                "---\nid: 0007\nstatus: open\n---\n\nNative ticket.\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                importer.id_owned_by_other(issues.parent, "0007", "SODA-7"),
+                native,
+            )
+            self.assertIsNone(importer.id_owned_by_other(issues.parent, "0008", "SODA-8"))
+
+    def test_include_in_batch_skips_native_tickets(self) -> None:
+        batches = load_script("build-notion-batches.py")
+        native = "id: 0123\nstatus: open\n"
+        imported = 'id: "0007"\nlinear_id: "SODA-7"\nstatus: open\n'
+        mirrored = 'id: "0008"\nlinear_id: "SODA-8"\nnotion_page_id: "page"\n'
+        self.assertFalse(batches.include_in_batch(native))
+        self.assertTrue(batches.include_in_batch(imported))
+        self.assertFalse(batches.include_in_batch(mirrored))
+
+    def test_clear_generated_batches_removes_stale_files(self) -> None:
+        batches = load_script("build-notion-batches.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "batch-03.json").write_text("{}", encoding="utf-8")
+            (out / "index-03.json").write_text("[]", encoding="utf-8")
+            (out / "notes.txt").write_text("keep", encoding="utf-8")
+            batches.clear_generated_batches(out)
+            self.assertFalse((out / "batch-03.json").exists())
+            self.assertFalse((out / "index-03.json").exists())
+            self.assertEqual((out / "notes.txt").read_text(encoding="utf-8"), "keep")
+
+    def test_issues_root_rejects_a_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            (repo / ".wcp").mkdir(parents=True)
+            (repo / ".wcp" / "issues").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                issues_root(repo)
 
 
 if __name__ == "__main__":
