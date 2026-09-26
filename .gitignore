@@ -1,9 +1,9 @@
 node_modules/
 dist/
-.WCP/RUN.md
-.WCP/run.sqlite
-.WCP/*.sqlite-wal
-.WCP/*.sqlite-shm
+.wcp/RUN.md
+.wcp/run.sqlite
+.wcp/*.sqlite-wal
+.wcp/*.sqlite-shm
 .watercool/
 *.sqlite
 *.sqlite-wal

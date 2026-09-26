@@ -1,7 +1,7 @@
 import { canConnect, rpc } from "./client.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { findRepoRoot, wcpDir } from "./paths.ts";
+import { findRepoRoot, wcpDir, wcpDirName } from "./paths.ts";
 import type { RpcResponse } from "./rpc.ts";
 
 type JsonRpc = {
@@ -134,7 +134,7 @@ async function ensureDaemon(root: string): Promise<void> {
       return;
     }
   }
-  throw new Error("wcpd failed to start; see .WCP/wcpd.log");
+  throw new Error(`wcpd failed to start; see ${wcpDirName(root)}/wcpd.log`);
 }
 
 async function callTool(name: string, params: Record<string, unknown> | undefined): Promise<RpcResponse> {

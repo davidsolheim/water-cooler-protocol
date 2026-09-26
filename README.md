@@ -44,16 +44,22 @@ cd /path/to/your/app
 wcp init --arch "rotate refresh tokens on session mint; dashboard empty state; no schema migrate"
 ```
 
-That starts `wcpd` (unix socket `.WCP/wcp.sock`, SQLite `.WCP/run.sqlite`), writes `.WCP/RUN.md` for humans, and installs **local** git hooks (not `core.hooksPath`). Gitignore is occupancy only:
+That starts `wcpd` (unix socket `.wcp/wcp.sock`, SQLite `.wcp/run.sqlite`), writes `.wcp/RUN.md` for humans, and installs **local** git hooks (not `core.hooksPath`). Gitignore is occupancy only:
 
 ```
-.WCP/RUN.md
-.WCP/run.sqlite
-.WCP/*.sqlite-wal
-.WCP/*.sqlite-shm
+.wcp/RUN.md
+.wcp/run.sqlite
+.wcp/*.sqlite-wal
+.wcp/*.sqlite-shm
 ```
 
-A blanket `.WCP/` line is removed so `.WCP/issues/` can be committed. Hooks still reject every other `.WCP/` path. Agents do not push.
+A blanket `.wcp/` or `.WCP/` line is removed so `.wcp/issues/` can be committed. Hooks still reject every other path under `.wcp/` or legacy `.WCP/`. Agents do not push.
+
+A checkout that still has only `.WCP/` keeps working. `wcp doctor` prints:
+
+```
+git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp
+```
 
 Each agent names itself. It does not wait for a human to assign the id.
 
@@ -93,8 +99,8 @@ MCP (stdio):
 - Tests written before the claim, and never claimed. New files written with no claim
 - Drift via sha256 at acquire (`write-ok` fails if the file moved)
 - `overtake` inherits `doing`/`scope` on idle leases
-- L2: `write-ok` + hooks (no board or sqlite commits; `.WCP/issues/` is committed; `WCP_AGENT` cannot push)
-- Committed queue: `.WCP/issues/{open,in-progress,in-review,done,canceled,blocked}/`. Ticket lease is 10 minutes. A solver moves finished work to `in-review/`. One reviewer per issue checks it, fixes it, and sets `done`. Cancel and block each write `reason` and stay searchable. File lease stays the floor TTL. `RUN.md` stays occupancy and `arch`
+- L2: `write-ok` + hooks (no board or sqlite commits; `.wcp/issues/` is committed; `WCP_AGENT` cannot push)
+- Committed queue: `.wcp/issues/{open,in-progress,in-review,done,canceled,blocked}/`. Ticket lease is 10 minutes. A solver moves finished work to `in-review/`. One reviewer per issue checks it, fixes it, and sets `done`. Cancel and block each write `reason` and stay searchable. File lease stays the floor TTL. `RUN.md` stays occupancy and `arch`
 - Operating point: about 8–20 writers on disjoint files, not 100
 
 Not in V1: honor-mode markdown as the store, multi-path `also` bursts, harness wrapping of editor write tools, a hosted referee.

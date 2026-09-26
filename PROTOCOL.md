@@ -4,13 +4,13 @@ WCP coordinates many coding agents on one shared local `dev` checkout. It is a s
 
 Home: [watercoolerprotocol.com](https://watercoolerprotocol.com)
 
-`.WCP/` holds two layers. The floor (`.WCP/RUN.md`, `.WCP/run.sqlite`, and its wal/shm) is gitignored and never committed. The queue (`.WCP/issues/`) is tracked and committed with the branch. Other local runtime under `.WCP/` (socket, lock, pid, log, mode, barrels) is not the queue; hooks reject every `.WCP/` path that is not under `.WCP/issues/`.
+`.wcp/` holds two layers. The floor (`.wcp/RUN.md`, `.wcp/run.sqlite`, and its wal/shm) is gitignored and never committed. The queue (`.wcp/issues/`) is tracked and committed with the branch. Other local runtime under `.wcp/` (socket, lock, pid, log, mode, barrels) is not the queue; hooks reject every `.wcp/` path that is not under `.wcp/issues/`. A legacy `.WCP/` folder is held to the same rule.
 
 ## Place in the Git loop
 
 ```
 local dev          agents + you build here; the board stays on this machine
-    ↓ you check     issues in .WCP/issues/ ride with the commit
+    ↓ you check     issues in .wcp/issues/ ride with the commit
 origin/dev         your export after review
     ↓ PR
 origin/main        product
@@ -22,7 +22,7 @@ Agents do not push `origin/dev`. They do not reset HEAD. They do not rewind the 
 
 | Layer | What exists | When |
 |---|---|---|
-| L0 Honor | Skill + `.WCP/RUN.md` as a human view | Skill still moving; not the store |
+| L0 Honor | Skill + `.wcp/RUN.md` as a human view | Skill still moving; not the store |
 | L1 Referee | Skill + `wcpd` + local SQLite | V1. Board must be true |
 | L2 Gate | L1 + `write_ok` + local git hooks | Writes without a lease fail the check; agents cannot push |
 
@@ -30,9 +30,9 @@ Same protocol at every layer. Thicker walls.
 
 ## Floor and queue
 
-The floor is who is mid-write on which source file. `.WCP/RUN.md` is a rendered view of that occupancy plus `arch`. It is not a backlog. Do not put specs, ticket status, or diffs on it.
+The floor is who is mid-write on which source file. `.wcp/RUN.md` is a rendered view of that occupancy plus `arch`. It is not a backlog. Do not put specs, ticket status, or diffs on it.
 
-The queue is what work exists, who holds the ticket, and what done means. It lives in git under `.WCP/issues/`. A ticket lease is not a source-file lease. Do not `acquire` an issue file. One live source file per agent still holds.
+The queue is what work exists, who holds the ticket, and what done means. It lives in git under `.wcp/issues/`. A ticket lease is not a source-file lease. Do not `acquire` an issue file. One live source file per agent still holds.
 
 This queue is for one builder running many agents on one checkout. It does not call Linear, Jira, GitHub Issues, or Notion.
 
@@ -82,7 +82,7 @@ If the work is wrong, do not overtake. Start a new lease after `arch` or the hum
 
 ## Barrels
 
-Lockfiles, generated clients, root schema: still exclusive (every path is). Short leases still serialize them. `.WCP/barrels` is a glob list the skill treats as extra-hot. It is not a second lock type.
+Lockfiles, generated clients, root schema: still exclusive (every path is). Short leases still serialize them. `.wcp/barrels` is a glob list the skill treats as extra-hot. It is not a second lock type.
 
 ## Drift
 
@@ -90,7 +90,7 @@ Re-read the board and the real file before every write. On acquire, store `sha25
 
 ## Store
 
-`.WCP/run.sqlite` — local file, WAL, `busy_timeout=5000`. Not Prisma, not Turso, not Postgres. Four tables. Raw SQL. The daemon is the only client.
+`.wcp/run.sqlite` — local file, WAL, `busy_timeout=5000`. Not Prisma, not Turso, not Postgres. Four tables. Raw SQL. The daemon is the only client.
 
 ```sql
 CREATE TABLE run (
@@ -129,9 +129,9 @@ CREATE TABLE actor (
 
 One run row. `arch` is the aim of the session. `snap_at` is when `existed` was captured. One live row per agent, one per path. `UNIQUE(path)` is the exclusive lease. `test_path` is the test file that justified the claim. `existed` is the worktree at `snap_at`. One `actor` row per name reserved for the run. `token` is the proof that this session owns the name. `pid` is set for a long-lived MCP client and left null for the one-shot CLI. Timestamps are ISO-8601 UTC. No test text, no source, no chat. `look` returns names without tokens.
 
-`.WCP/RUN.md` is a rendered view of `look`. Humans glance. Agents call RPC.
+`.wcp/RUN.md` is a rendered view of `look`. Humans glance. Agents call RPC.
 
-`.WCP/mode` is `referee` in V1.
+`.wcp/mode` is `referee` in V1.
 
 ## Process
 
@@ -139,13 +139,13 @@ One run row. `arch` is the aim of the session. `snap_at` is when `existed` was c
 
 ```
 agents ── look / acquire / release / overtake / write_ok ──► wcpd ──► run.sqlite
-                                                               └── .WCP/wcp.sock
+                                                               └── .wcp/wcp.sock
 ```
 
-- Bind: Unix socket `.WCP/wcp.sock`
+- Bind: Unix socket `.wcp/wcp.sock`
 - Trust: if you can write the checkout, you can talk to the socket
 - Life: start with the run; CLI auto-starts the daemon; `wcp stop` exits it
-- Singleton: exclusive lock `.WCP/wcpd.lock`; stale socket unlinked if the lock is free
+- Singleton: exclusive lock `.wcp/wcpd.lock`; stale socket unlinked if the lock is free
 - Clients: MCP tools or `wcp`. Agents do not open SQLite.
 
 `look` does not reap: expired rows stay visible so `overtake` can inherit `doing`/`scope`. `reap` drops idle rows. Idle means `expires_at` has passed, or a recorded `pid` is dead.
@@ -200,7 +200,7 @@ At a healthy N, `live` should be almost empty most of the time. A long live list
 ## Issues
 
 ```
-.WCP/issues/
+.wcp/issues/
   open/
   in-progress/
   in-review/
@@ -232,13 +232,23 @@ The body is the spec, short enough to work from.
 Gitignore, and what `wcp init` writes:
 
 ```
-.WCP/RUN.md
-.WCP/run.sqlite
-.WCP/*.sqlite-wal
-.WCP/*.sqlite-shm
+.wcp/RUN.md
+.wcp/run.sqlite
+.wcp/*.sqlite-wal
+.wcp/*.sqlite-shm
 ```
 
-A blanket `.WCP/` ignore is removed when init runs, because it would hide the queue. Always commit `.WCP/issues/`. Never commit the board or sqlite.
+A blanket `.wcp/` or `.WCP/` ignore is removed when init runs, because it would hide the queue. Always commit `.wcp/issues/`. Never commit the board or sqlite.
+
+### Migrating from .WCP
+
+`.wcp/` is the queue folder. If a checkout has `.WCP/` and no `.wcp/`, the tool keeps using `.WCP/`. `wcp init`, `wcp start`, and `wcp doctor` print:
+
+```
+git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp
+```
+
+Two steps, because a case-insensitive volume treats those names as one directory. Hooks allow `issues/` under either spelling and reject every other path under either folder. While the checkout is still on `.WCP/`, init also writes the four occupancy gitignore lines with that spelling.
 
 ### Ticket lease
 
@@ -250,7 +260,7 @@ Reclaim when `lease_expires` is past and the holder is not renewing. Clear `assi
 
 Close when the work matches `acceptance`. The solver records touched paths in `files`, releases every source-file lease, and leaves the tree dirty. The solver sets `status: in-review`, clears `lease_expires`, leaves `assignee` as itself, leaves `commit` empty, and moves the file to `in-review/`. A solver does not run `git commit` and does not run `git stash`. On a shared checkout, a stash hides another writer's uncommitted files.
 
-The orchestrator watches `.WCP/issues/in-review/`. For each file there, it launches one reviewer. The reviewer reads that issue and the paths in `files`, and checks security, accessibility, functionality, and aesthetics against `acceptance`. If the check fails, the reviewer fixes the code under the file lease, then releases it. The reviewer does not commit and does not stash. When the check passes, the reviewer sets `status: done`, clears `assignee` and `lease_expires`, and moves the file to `done/`.
+The orchestrator watches `.wcp/issues/in-review/`. For each file there, it launches one reviewer. The reviewer reads that issue and the paths in `files`, and checks security, accessibility, functionality, and aesthetics against `acceptance`. If the check fails, the reviewer fixes the code under the file lease, then releases it. The reviewer does not commit and does not stash. When the check passes, the reviewer sets `status: done`, clears `assignee` and `lease_expires`, and moves the file to `done/`.
 
 The orchestrator is the only one who commits. It does not commit while a reviewer is still running. A commit happens only when `wcp look` shows no live source-file lease. A live lease means a writer is mid-edit. Wait. Do not commit that burst and do not stash it. An in-review ticket is not a source-file lease.
 
@@ -285,7 +295,7 @@ Do not collapse them.
 - **Not Watercooler** (threads + ball-passing). Occupancy ≠ conversation.
 - **Not worktrees.** Those isolate checkouts. WCP keeps everyone on one live `dev`.
 - **Not a backlog on `RUN.md`.** Specs, status, and the closing hash live on the issue file. The board is occupancy and `arch`.
-- **Not Linear, Jira, GitHub Issues, or Notion.** Those stay with scaled teams. WCP work is assigned from `.WCP/issues/` only.
+- **Not Linear, Jira, GitHub Issues, or Notion.** Those stay with scaled teams. WCP work is assigned from `.wcp/issues/` only.
 - **Not Turso/Prisma/Neon.** The board is a mutex with a few strings.
 
 ## Failure modes the system accepts

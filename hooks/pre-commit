@@ -1,7 +1,7 @@
 #!/bin/sh
-# WCP: do not commit .WCP/
-if git diff --cached --name-only | grep -q '^\.WCP/'; then
-  echo "WCP: do not commit .WCP/" >&2
+# WCP: commit .wcp/issues/ only. Legacy .WCP/issues/ is the same queue.
+if git diff --cached --name-only | grep -E '^\.(wcp|WCP)/' | grep -v -E '^\.(wcp|WCP)/issues/' | grep -q .; then
+  echo "WCP: do not commit the board or sqlite; only .wcp/issues/ is committed" >&2
   exit 1
 fi
 exit 0

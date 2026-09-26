@@ -19,8 +19,9 @@ This repo is the Water Cooler Protocol tool (`wcp` / `wcpd`), not a Next app.
 ## Git
 
 - Integration branch: `dev`
-- Do not commit the board or sqlite (`.WCP/RUN.md`, `.WCP/run.sqlite`, wal, shm) or `.watercool/`
-- Do commit `.WCP/issues/`
+- Do not commit the board or sqlite (`.wcp/RUN.md`, `.wcp/run.sqlite`, wal, shm) or `.watercool/`
+- Do commit `.wcp/issues/`
+- A checkout with only `.WCP/` still runs. `wcp doctor` prints the migrate command. See PROTOCOL.md.
 - Only the orchestrator runs `git commit`, and only when `wcp look` shows no live source-file lease. Workers do not commit or stash.
 - Do not push unless asked
 

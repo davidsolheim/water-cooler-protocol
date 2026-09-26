@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitRepo } from "./helpers.ts";
 
@@ -67,10 +67,12 @@ describe("cli", () => {
     expect(started.ok).toBe(true);
     expect(started.arch).toBe("demo");
     const gi = readFileSync(join(root, ".gitignore"), "utf8").split("\n");
-    expect(gi).toContain(".WCP/RUN.md");
-    expect(gi).toContain(".WCP/run.sqlite");
-    expect(gi.filter((line) => line === ".WCP/" || line === ".WCP")).toHaveLength(0);
-    expect(readFileSync(join(root, ".WCP", "mode"), "utf8").trim()).toBe("referee");
+    expect(gi).toContain(".wcp/RUN.md");
+    expect(gi).toContain(".wcp/run.sqlite");
+    expect(gi.filter((line) => line === ".wcp/" || line === ".wcp" || line === ".WCP/" || line === ".WCP")).toHaveLength(0);
+    expect(readFileSync(join(root, ".wcp", "mode"), "utf8").trim()).toBe("referee");
+    expect(readdirSync(root)).toContain(".wcp");
+    expect(init.err).not.toContain("git mv .WCP");
 
     writeFileSync(
       join(root, "src", "a.test.ts"),
@@ -101,5 +103,39 @@ describe("cli", () => {
 
     const stop = wcp(root, ["stop", "--json"]);
     expect(stop.code).toBe(0);
+  });
+
+  test("doctor reports an absent directory without a migrate command", () => {
+    const root = gitRepo();
+    dirs.push(root);
+    const doctor = wcp(root, ["doctor"]);
+    expect(doctor.code).toBe(0);
+    expect(doctor.out).toContain("directory .wcp (absent)");
+    expect(doctor.out).not.toContain("git mv .WCP");
+  });
+
+  test("init keeps a legacy .WCP directory and prints the migrate command", () => {
+    const root = gitRepo();
+    dirs.push(root);
+    mkdirSync(join(root, ".WCP"));
+    const init = wcp(root, ["init", "--arch", "demo", "--json"]);
+    expect(init.code).toBe(0);
+    expect(JSON.parse(init.out).ok).toBe(true);
+    const names = readdirSync(root);
+    expect(names).toContain(".WCP");
+    expect(names).not.toContain(".wcp");
+    expect(readFileSync(join(root, ".WCP", "mode"), "utf8").trim()).toBe("referee");
+    expect(init.err).toContain("git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp");
+    const gi = readFileSync(join(root, ".gitignore"), "utf8").split("\n");
+    expect(gi).toContain(".wcp/RUN.md");
+    expect(gi).toContain(".WCP/RUN.md");
+    expect(gi.filter((line) => line === ".WCP/" || line === ".WCP" || line === ".wcp/" || line === ".wcp")).toHaveLength(0);
+    const doctor = wcp(root, ["doctor"]);
+    expect(doctor.code).toBe(0);
+    expect(doctor.out).toContain("directory .WCP (legacy)");
+    expect(doctor.out).toContain("git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp");
+    const look = wcp(root, ["look", "--json"]);
+    expect(look.code).toBe(0);
+    expect(JSON.parse(look.out).ok).toBe(true);
   });
 });
