@@ -536,6 +536,13 @@ COMMENT_START = "<!-- wcp:linear-comments -->"
 COMMENT_END = "<!-- /wcp:linear-comments -->"
 
 
+def shield_comment_markers(text: str) -> str:
+    """Keep quoted delimiter text from being read as the importer's own markers."""
+    return text.replace(COMMENT_START, "< !-- wcp:linear-comments -->").replace(
+        COMMENT_END, "< !-- /wcp:linear-comments -->"
+    )
+
+
 def comments_section(text: str) -> str:
     """The comment block the importer appended, not a copy pasted inside a comment."""
     parts = text.split("---", 2)
@@ -551,11 +558,11 @@ def comments_section(text: str) -> str:
         )
     )
     if authors:
-        section = body[authors[0].start() :].strip()
+        section = shield_comment_markers(body[authors[0].start() :].strip())
         return f"{COMMENT_START}\n{section}\n{COMMENT_END}\n"
     empty = re.search(r"(?m)^## Linear comments\n\n_No Linear comments\._\s*\Z", body)
     if empty:
-        section = body[empty.start() :].strip()
+        section = shield_comment_markers(body[empty.start() :].strip())
         return f"{COMMENT_START}\n{section}\n{COMMENT_END}\n"
     return ""
 
