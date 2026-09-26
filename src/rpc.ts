@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import type { Database } from "bun:sqlite";
+import { isWcpTreePath } from "./paths.ts";
 import {
   DEFAULT_TTL_SEC,
   absFromBoard,
@@ -159,7 +160,7 @@ function getRun(db: Database): RunRow | undefined {
 
 function cleanExistedPath(raw: string): string | null {
   const rel = raw.replace(/\\/g, "/").replace(/^\.\//, "");
-  if (!rel || rel.startsWith("/") || rel.startsWith(".WCP/") || rel.split("/").includes("..")) {
+  if (!rel || rel.startsWith("/") || isWcpTreePath(rel) || rel.split("/").includes("..")) {
     return null;
   }
   return rel;

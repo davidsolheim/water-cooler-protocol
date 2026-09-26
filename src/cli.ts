@@ -1,10 +1,19 @@
 #!/usr/bin/env bun
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 import { canConnect, rpc } from "./client.ts";
 import { startDaemon } from "./daemon.ts";
 import { ensureBarrels, ensureGitignore, installHooks } from "./git.ts";
-import { findRepoRoot, wcpDir } from "./paths.ts";
+import {
+  doctorReport,
+  findRepoRoot,
+  legacyMigrationLine,
+  usingLegacyWcpDir,
+  logPath,
+  wcpDir,
+  wcpDirName,
+  wcpDirNames,
+  writeRuntimeFile,
+} from "./paths.ts";
 import { DEFAULT_TTL_SEC } from "./protocol.ts";
 import type { RpcMethod, RpcRequest, RpcResponse } from "./rpc.ts";
 
@@ -12,6 +21,7 @@ const USAGE = `Water Cooler Protocol (wcp)
 
 Usage:
   wcp init --arch <text> [--branch dev] [--ttl-sec 60]
+  wcp doctor
   wcp start --arch <text> [--branch dev] [--ttl-sec 60] [--force]
   wcp look [--json]
   wcp status
@@ -148,6 +158,15 @@ function print(res: RpcResponse, json: boolean): void {
   console.log("ok");
 }
 
+function printDoctor(root: string): number {
+  const report = doctorReport(wcpDirNames(root));
+  const write = report.code === 0 ? console.log : console.error;
+  for (const line of report.lines) {
+    write(line);
+  }
+  return report.code;
+}
+
 function daemonSpawnArgs(): string[] {
   const entry = process.argv[1];
   if (entry && (entry.endsWith("cli.ts") || entry.endsWith("cli.js"))) {
@@ -158,12 +177,12 @@ function daemonSpawnArgs(): string[] {
 
 function spawnDaemon(root: string): void {
   mkdirSync(wcpDir(root), { recursive: true });
-  const logPath = join(wcpDir(root), "wcpd.log");
-  writeFileSync(logPath, "");
+  const log = logPath(root);
+  writeRuntimeFile(log, "");
   const proc = Bun.spawn(daemonSpawnArgs(), {
     cwd: root,
     stdout: "ignore",
-    stderr: Bun.file(logPath),
+    stderr: Bun.file(log),
     stdin: "ignore",
     env: process.env,
     detached: true,
@@ -182,7 +201,7 @@ async function ensureDaemon(root: string): Promise<void> {
       return;
     }
   }
-  throw new Error("wcpd failed to start; see .WCP/wcpd.log");
+  throw new Error(`wcpd failed to start; see ${wcpDirName(root)}/wcpd.log`);
 }
 
 async function call(
@@ -236,11 +255,18 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 0;
   }
 
+  if (flags.cmd === "doctor") {
+    return printDoctor(root);
+  }
+
   if (flags.cmd === "init" || flags.cmd === "start") {
     const arch = flagStr(flags, "arch") ?? "";
     if (!arch) {
       console.error("wcp: --arch is required");
       return 1;
+    }
+    if (usingLegacyWcpDir(root)) {
+      console.error(legacyMigrationLine());
     }
     mkdirSync(wcpDir(root), { recursive: true });
     ensureGitignore(root);

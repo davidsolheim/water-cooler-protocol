@@ -1,5 +1,9 @@
 node_modules/
 dist/
+.wcp/RUN.md
+.wcp/run.sqlite
+.wcp/*.sqlite-wal
+.wcp/*.sqlite-shm
 .WCP/RUN.md
 .WCP/run.sqlite
 .WCP/*.sqlite-wal
@@ -9,3 +13,5 @@ dist/
 *.sqlite-wal
 *.sqlite-shm
 .DS_Store
+__pycache__/
+*.pyc

@@ -4,8 +4,8 @@ if [ -n "$WCP_AGENT" ]; then
   echo "WCP: agents do not push; drop WCP_AGENT if you are the human." >&2
   exit 1
 fi
-if git diff --cached --name-only 2>/dev/null | grep -q '^\.WCP/'; then
-  echo "WCP: do not push .WCP/" >&2
+if git diff --cached --name-only 2>/dev/null | grep -E '^\.(wcp|WCP)/' | grep -v -E '^\.(wcp|WCP)/issues/' | grep -q .; then
+  echo "WCP: do not push the board or sqlite; only .wcp/issues/ is committed" >&2
   exit 1
 fi
 exit 0

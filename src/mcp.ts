@@ -1,7 +1,6 @@
 import { canConnect, rpc } from "./client.ts";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { findRepoRoot, wcpDir } from "./paths.ts";
+import { mkdirSync } from "node:fs";
+import { findRepoRoot, logPath, wcpDir, wcpDirName, writeRuntimeFile } from "./paths.ts";
 import type { RpcResponse } from "./rpc.ts";
 
 type JsonRpc = {
@@ -112,8 +111,8 @@ async function ensureDaemon(root: string): Promise<void> {
     return;
   }
   mkdirSync(wcpDir(root), { recursive: true });
-  const logPath = join(wcpDir(root), "wcpd.log");
-  writeFileSync(logPath, "");
+  const log = logPath(root);
+  writeRuntimeFile(log, "");
   const entry = process.argv[1];
   const args =
     entry && (entry.endsWith("cli.ts") || entry.endsWith("mcp.ts") || entry.endsWith("cli.js"))
@@ -122,7 +121,7 @@ async function ensureDaemon(root: string): Promise<void> {
   const proc = Bun.spawn(args, {
     cwd: root,
     stdout: "ignore",
-    stderr: Bun.file(logPath),
+    stderr: Bun.file(log),
     stdin: "ignore",
     env: process.env,
     detached: true,
@@ -134,7 +133,7 @@ async function ensureDaemon(root: string): Promise<void> {
       return;
     }
   }
-  throw new Error("wcpd failed to start; see .WCP/wcpd.log");
+  throw new Error(`wcpd failed to start; see ${wcpDirName(root)}/wcpd.log`);
 }
 
 async function callTool(name: string, params: Record<string, unknown> | undefined): Promise<RpcResponse> {

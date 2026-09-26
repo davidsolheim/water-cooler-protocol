@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { barrelsPath } from "./paths.ts";
+import { barrelsPath, isWcpTreePath, wcpDirNames, writeRuntimeFile } from "./paths.ts";
 
 export const DEFAULT_BARRELS = `package-lock.json
 pnpm-lock.yaml
@@ -12,15 +12,62 @@ yarn.lock
 **/schema.prisma
 `;
 
-/** Occupancy only. `.WCP/issues/` stays tracked. */
+/** Occupancy only. `.wcp/issues/` stays tracked. */
 export const OCCUPANCY_GITIGNORE = [
+  ".wcp/RUN.md",
+  ".wcp/run.sqlite",
+  ".wcp/*.sqlite-wal",
+  ".wcp/*.sqlite-shm",
+] as const;
+
+/** Same occupancy paths for a checkout that has not migrated off `.WCP/`. */
+export const LEGACY_OCCUPANCY_GITIGNORE = [
   ".WCP/RUN.md",
   ".WCP/run.sqlite",
   ".WCP/*.sqlite-wal",
   ".WCP/*.sqlite-shm",
 ] as const;
 
+const BLANKET_IGNORE = new Set([
+  ".WCP/",
+  ".WCP",
+  ".wcp/",
+  ".wcp",
+  "/.WCP/",
+  "/.WCP",
+  "/.wcp/",
+  "/.wcp",
+]);
+
+export function occupancyIgnoreLines(legacyPresent: boolean): readonly string[] {
+  return legacyPresent
+    ? [...OCCUPANCY_GITIGNORE, ...LEGACY_OCCUPANCY_GITIGNORE]
+    : OCCUPANCY_GITIGNORE;
+}
+
 export const PRE_COMMIT_HOOK = `#!/bin/sh
+# WCP: commit .wcp/issues/ only. Legacy .WCP/issues/ is the same queue.
+if git diff --cached --name-only | grep -E '^\\.(wcp|WCP)/' | grep -v -E '^\\.(wcp|WCP)/issues/' | grep -q .; then
+  echo "WCP: do not commit the board or sqlite; only .wcp/issues/ is committed" >&2
+  exit 1
+fi
+exit 0
+`;
+
+export const PRE_PUSH_HOOK = `#!/bin/sh
+# WCP: agents do not push
+if [ -n "$WCP_AGENT" ]; then
+  echo "WCP: agents do not push; drop WCP_AGENT if you are the human." >&2
+  exit 1
+fi
+if git diff --cached --name-only 2>/dev/null | grep -E '^\\.(wcp|WCP)/' | grep -v -E '^\\.(wcp|WCP)/issues/' | grep -q .; then
+  echo "WCP: do not push the board or sqlite; only .wcp/issues/ is committed" >&2
+  exit 1
+fi
+exit 0
+`;
+
+const ISSUES_UPPER_PRE_COMMIT_HOOK = `#!/bin/sh
 # WCP: commit .WCP/issues/ only
 if git diff --cached --name-only | grep '^\\.WCP/' | grep -v '^\\.WCP/issues/' | grep -q .; then
   echo "WCP: do not commit the board or sqlite; only .WCP/issues/ is committed" >&2
@@ -29,7 +76,7 @@ fi
 exit 0
 `;
 
-export const PRE_PUSH_HOOK = `#!/bin/sh
+const ISSUES_UPPER_PRE_PUSH_HOOK = `#!/bin/sh
 # WCP: agents do not push
 if [ -n "$WCP_AGENT" ]; then
   echo "WCP: agents do not push; drop WCP_AGENT if you are the human." >&2
@@ -42,7 +89,7 @@ fi
 exit 0
 `;
 
-const PREVIOUS_PRE_COMMIT_HOOK = `#!/bin/sh
+const REJECT_ALL_PRE_COMMIT_HOOK = `#!/bin/sh
 # WCP: do not commit .WCP/
 if git diff --cached --name-only | grep -q '^\\.WCP/'; then
   echo "WCP: do not commit .WCP/" >&2
@@ -51,7 +98,7 @@ fi
 exit 0
 `;
 
-const PREVIOUS_PRE_PUSH_HOOK = `#!/bin/sh
+const REJECT_ALL_PRE_PUSH_HOOK = `#!/bin/sh
 # WCP: agents do not push
 if [ -n "$WCP_AGENT" ]; then
   echo "WCP: agents do not push; drop WCP_AGENT if you are the human." >&2
@@ -82,7 +129,7 @@ export function listWorktreeFiles(repoRoot: string): string[] {
   const seen = new Set<string>();
   for (const raw of [...tracked, ...untracked]) {
     const rel = raw.replace(/\\/g, "/").replace(/^\.\//, "");
-    if (!rel || rel.startsWith("/") || rel.startsWith(".WCP/") || rel.split("/").includes("..")) {
+    if (!rel || rel.startsWith("/") || isWcpTreePath(rel) || rel.split("/").includes("..")) {
       continue;
     }
     seen.add(rel);
@@ -106,9 +153,10 @@ export function ensureGitignore(repoRoot: string): void {
   const path = join(repoRoot, ".gitignore");
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const lines = existing.split("\n");
-  const filtered = lines.filter((line) => line !== ".WCP/" && line !== ".WCP");
+  const filtered = lines.filter((line) => !BLANKET_IGNORE.has(line));
+  const want = occupancyIgnoreLines(wcpDirNames(repoRoot).legacy);
   const present = new Set(filtered);
-  const missing = OCCUPANCY_GITIGNORE.filter((line) => !present.has(line));
+  const missing = want.filter((line) => !present.has(line));
   const removedBlanket = filtered.length !== lines.length;
   if (existsSync(path) && !removedBlanket && missing.length === 0) {
     return;
@@ -125,7 +173,7 @@ export function ensureGitignore(repoRoot: string): void {
 
 export function ensureBarrels(repoRoot: string): void {
   if (!existsSync(barrelsPath(repoRoot))) {
-    writeFileSync(barrelsPath(repoRoot), DEFAULT_BARRELS);
+    writeRuntimeFile(barrelsPath(repoRoot), DEFAULT_BARRELS);
   }
 }
 
@@ -133,7 +181,7 @@ function sameHook(a: string, b: string): boolean {
   return a.replace(/\s+$/, "") === b.replace(/\s+$/, "");
 }
 
-function writeHook(path: string, body: string, previous: string): void {
+function writeHook(path: string, body: string, previous: readonly string[]): void {
   const mark = "# existing hook follows\n";
   if (!existsSync(path)) {
     writeFileSync(path, body);
@@ -145,7 +193,7 @@ function writeHook(path: string, body: string, previous: string): void {
     chmodSync(path, 0o755);
     return;
   }
-  if (sameHook(cur, previous)) {
+  if (previous.some((old) => sameHook(cur, old))) {
     writeFileSync(path, body);
     chmodSync(path, 0o755);
     return;
@@ -168,6 +216,12 @@ export function installHooks(repoRoot: string): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  writeHook(join(dir, "pre-commit"), PRE_COMMIT_HOOK, PREVIOUS_PRE_COMMIT_HOOK);
-  writeHook(join(dir, "pre-push"), PRE_PUSH_HOOK, PREVIOUS_PRE_PUSH_HOOK);
+  writeHook(join(dir, "pre-commit"), PRE_COMMIT_HOOK, [
+    REJECT_ALL_PRE_COMMIT_HOOK,
+    ISSUES_UPPER_PRE_COMMIT_HOOK,
+  ]);
+  writeHook(join(dir, "pre-push"), PRE_PUSH_HOOK, [
+    REJECT_ALL_PRE_PUSH_HOOK,
+    ISSUES_UPPER_PRE_PUSH_HOOK,
+  ]);
 }

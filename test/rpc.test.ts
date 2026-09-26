@@ -10,7 +10,7 @@ function listTree(root: string): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
     for (const ent of readdirSync(dir, { withFileTypes: true })) {
-      if (ent.name === ".git" || ent.name === ".WCP") {
+      if (ent.name === ".git" || ent.name === ".wcp" || ent.name === ".WCP") {
         continue;
       }
       const abs = join(dir, ent.name);
