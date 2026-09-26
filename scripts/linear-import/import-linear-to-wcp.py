@@ -444,7 +444,7 @@ def carry_notion(body: str, issues: Path, linear_id: str) -> str:
     return body
 
 
-WCP_OWNED_FIELDS = ("status", "assignee", "lease_expires", "files", "commit", "reason")
+WCP_OWNED_FIELDS = ("status", "assignee", "lease_expires", "files", "commit", "reason", "acceptance")
 
 
 def existing_issue_text(issues: Path, linear_id: str) -> str:
@@ -510,6 +510,19 @@ def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
             continue
         new_front = replace_front_field(new_front, key, block)
     return f"---{new_front}---{parts[2]}"
+
+
+def refreshed_issue(
+    issue: dict, wcp_id: str, issues: Path, linear_id: str
+) -> tuple[str, str]:
+    """Rewrite Linear-owned text and keep the queue status already stored for this id."""
+    state = issue.get("state") or {}
+    linear_status, linear_reason = map_status(state.get("type") or "", state.get("name") or "")
+    status = stored_status(issues, linear_id) or linear_status
+    body = render(issue, wcp_id, status, linear_reason)
+    body = carry_notion(body, issues, linear_id)
+    body = preserve_wcp_fields(body, issues, linear_id)
+    return status, body
 
 
 def stored_status(issues: Path, linear_id: str) -> str:
@@ -755,25 +768,20 @@ def main() -> None:
 
     planned = []
     for issue in sorted(found, key=lambda item: assigned[item["identifier"]]):
-        state = issue.get("state") or {}
-        linear_status, linear_reason = map_status(state.get("type") or "", state.get("name") or "")
         wcp_id = assigned[issue["identifier"]]
         linear_id = require_linear_identifier(issue["identifier"])
-        status = stored_status(root, linear_id) or linear_status
         taken = id_owned_by_other(root, wcp_id, linear_id)
         if taken is not None:
             raise SystemExit(
                 f"WCP id {wcp_id} is already used by {taken} and is not {linear_id}. "
                 "Move that ticket or pick another id before --force."
             )
-        planned.append((issue, status, linear_status, linear_reason, wcp_id, linear_id))
+        planned.append((issue, wcp_id, linear_id))
 
     written = 0
-    for issue, status, linear_status, linear_reason, wcp_id, linear_id in planned:
+    for issue, wcp_id, linear_id in planned:
+        status, body = refreshed_issue(issue, wcp_id, root, linear_id)
         path = root / status / filename_for(issue, wcp_id)
-        body = render(issue, wcp_id, linear_status, linear_reason)
-        body = carry_notion(body, root, linear_id)
-        body = preserve_wcp_fields(body, root, linear_id)
         replace_issue_file(root, path, body, linear_id)
         written += 1
     print(json.dumps({"written": written, "root": str(root)}))

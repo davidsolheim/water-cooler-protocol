@@ -829,29 +829,30 @@ class CodexFollowupTests(unittest.TestCase):
             issues = Path(tmp) / ".wcp" / "issues" / "in-review"
             issues.mkdir(parents=True)
             (issues / "0007-soda-7.md").write_text(old, encoding="utf-8")
-            fresh = importer.render(
-                {
-                    "identifier": "SODA-7",
-                    "title": "New title from Linear",
-                    "description": "Updated Linear description for the forced import.",
-                    "state": {"type": "unstarted", "name": "Todo"},
-                    "priority": 2,
-                },
-                "0007",
-                "open",
-                "",
-            )
-            kept = importer.preserve_wcp_fields(fresh, issues.parent, "SODA-7")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+                "priority": 2,
+            }
+            status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            self.assertEqual(status, "in-review")
             front = kept.split("---", 2)[1]
             self.assertIn("\nstatus: in-review\n", front)
             self.assertNotIn("\nstatus: open\n", front)
+            self.assertIn("- Queue status: in-review", kept)
+            self.assertNotIn("- Queue status: open", kept)
             self.assertIn("assignee: agent-1", kept)
             self.assertIn("lease_expires: 2026-09-26T18:00:00Z", kept)
             self.assertIn("  - src/a.ts", kept)
             self.assertIn("commit: abc123", kept)
             self.assertIn('reason: "Held for review."', kept)
+            self.assertIn('acceptance: "Keep the local done definition."', kept)
+            self.assertNotIn("Updated Linear description for the forced import.", front)
             self.assertIn("New title from Linear", kept)
-            self.assertEqual(importer.stored_status(issues.parent, "SODA-7"), "in-review")
+            self.assertIn("Updated Linear description for the forced import.", kept.split("---", 2)[2])
+            fresh = importer.render(issue, "0007", "open", "")
             untouched = importer.preserve_wcp_fields(fresh, issues.parent, "SODA-8")
             self.assertEqual(untouched, fresh)
 
