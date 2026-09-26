@@ -173,8 +173,8 @@ def comment_block(identifier: str, comments: dict) -> tuple[str, int, bool]:
         lines.append("_No Linear comments._")
     else:
         for node in nodes:
-            who = ((node.get("user") or {}).get("name") or "Someone").strip()
-            when = node.get("createdAt") or ""
+            who = shield_comment_text(((node.get("user") or {}).get("name") or "Someone").strip())
+            when = shield_comment_text(node.get("createdAt") or "")
             body = shield_comment_text((node.get("body") or "").strip() or "_Empty comment._")
             lines.append(f"### {who} — {when}")
             lines.append("")

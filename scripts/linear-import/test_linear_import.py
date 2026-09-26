@@ -1165,6 +1165,21 @@ class CodexFollowupTests(unittest.TestCase):
         self.assertFalse(truncated)
         self.assertIn("< !-- wcp:linear-comments -->", block)
         self.assertEqual(block.count("<!-- wcp:linear-comments -->"), 1)
+        named, _count, _truncated = comments.comment_block(
+            "SODA-7",
+            {
+                "nodes": [
+                    {
+                        "user": {"name": "<!-- wcp:linear-comments -->"},
+                        "createdAt": "2026-09-01T00:00:00Z",
+                        "body": "hello",
+                    }
+                ],
+                "pageInfo": {"hasNextPage": False},
+            },
+        )
+        self.assertIn("### < !-- wcp:linear-comments --> — 2026-09-01T00:00:00Z", named)
+        self.assertEqual(named.count("<!-- wcp:linear-comments -->"), 1)
 
     def test_issues_root_rejects_a_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
