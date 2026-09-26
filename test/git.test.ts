@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureGitignore, installHooks, listWorktreeFiles, occupancyIgnoreLines, PRE_COMMIT_HOOK, PRE_PUSH_HOOK } from "../src/git.ts";
-import { doctorReport, legacyMigrationLine, MIGRATE_RUNTIME_COMMAND, usingLegacyWcpDir, wcpDir, wcpDirName, wcpDirNameFrom } from "../src/paths.ts";
+import { doctorReport, legacyMigrationLine, MIGRATE_COMMAND, MIGRATE_RUNTIME_COMMAND, usingLegacyWcpDir, wcpDir, wcpDirName, wcpDirNameFrom } from "../src/paths.ts";
 import { gitRepo } from "./helpers.ts";
 
 const dirs: string[] = [];
@@ -133,8 +133,10 @@ describe("gitignore and hooks", () => {
     const text = report.lines.join("\n");
     expect(text).toContain("both .wcp/ and .WCP/");
     expect(text).not.toContain("using .wcp");
-    expect(text).toContain("git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp");
-    expect(text).toContain(MIGRATE_RUNTIME_COMMAND);
+    expect(text).toContain("nests a tree");
+    expect(text).toContain("Copy issue files from .WCP/issues/");
+    expect(text).not.toContain(MIGRATE_COMMAND);
+    expect(text).not.toContain(MIGRATE_RUNTIME_COMMAND);
     const legacy = doctorReport({ canonical: false, legacy: true });
     expect(legacy.code).toBe(0);
     expect(legacy.lines.join("\n")).toContain("directory .WCP (legacy)");

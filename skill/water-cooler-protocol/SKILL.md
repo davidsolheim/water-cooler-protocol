@@ -29,7 +29,7 @@ If `WCP_AGENT` is already set, `wcp name` that id. `name_taken` means pick a dif
 
 ## Start
 
-Read `.wcp/issues/open/`, `.wcp/issues/in-progress/`, and `.wcp/issues/in-review/`. If the checkout has a `.WCP/` directory and no `.wcp/` directory, the queue is `.WCP/issues/` even when that issues folder does not exist yet. Create it there. Do not create `.wcp/` while `.WCP/` is the live directory. If both directories exist, do not start `wcp` and do not pick one; stop any daemon, then migrate. Do not rename it during a run. Reclaim expired `in-progress` tickets (Issues, below). Do not reclaim `in-review`. Do not copy tickets, specs, or diffs onto `.wcp/RUN.md`. `arch` on the board stays the session aim, not a copy of every ticket.
+Read `.wcp/issues/open/`, `.wcp/issues/in-progress/`, and `.wcp/issues/in-review/`. If the checkout has a `.WCP/` directory and no `.wcp/` directory, the queue is `.WCP/issues/` even when that issues folder does not exist yet. Create it there. Do not create `.wcp/` while `.WCP/` is the live directory. If both directories exist, do not start `wcp` and do not pick one. Stop any daemon. Do not rename one folder onto the other. Do not rename it during a run. Reclaim expired `in-progress` tickets (Issues, below). Do not reclaim `in-review`. Do not copy tickets, specs, or diffs onto `.wcp/RUN.md`. `arch` on the board stays the session aim, not a copy of every ticket.
 
 If those directories are missing and this run needs a queue, create `open/`, `in-progress/`, `in-review/`, `done/`, `canceled/`, and `blocked/`, and one issue whose body is the current `arch`. Do not invent a backlog.
 

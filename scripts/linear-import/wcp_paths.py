@@ -35,7 +35,9 @@ def wcp_dir_name_from_entries(names: list[str]) -> str:
     if canonical and legacy:
         raise ValueError(
             "WCP refuses to run while both .wcp/ and .WCP/ exist. "
-            "Stop any daemon, then migrate."
+            "Stop any daemon. Do not rename one folder onto the other; that nests a tree. "
+            "Copy issue files from .WCP/issues/ into .wcp/issues/ only when the destination file is missing, "
+            "keep the runtime database you still need, then remove .WCP/ after checking the copy."
         )
     if canonical:
         return WCP_DIR_NAME

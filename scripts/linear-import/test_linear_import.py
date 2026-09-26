@@ -68,6 +68,7 @@ class WcpDirNameTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             wcp_dir_name_from_entries([".wcp", ".WCP", "src"])
         self.assertIn("both .wcp/ and .WCP/", str(caught.exception))
+        self.assertIn("nests a tree", str(caught.exception))
 
     def test_entries_use_legacy_when_it_is_the_only_queue_dir(self) -> None:
         self.assertEqual(wcp_dir_name_from_entries([".WCP", "src"]), LEGACY_WCP_DIR_NAME)
@@ -803,6 +804,56 @@ class CodexFollowupTests(unittest.TestCase):
             self.assertEqual(again["ENG-9"], "0125")
             self.assertIn("ENG-3 -> 0012", notes)
             self.assertIn("SODA-12 -> 0124", notes)
+
+    def test_preserve_wcp_fields_keeps_lease_and_local_status(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            'title: "Old title"\n'
+            "status: in-review\n"
+            "priority: normal\n"
+            "assignee: agent-1\n"
+            "lease_expires: 2026-09-26T18:00:00Z\n"
+            'scope: "old scope"\n'
+            'acceptance: "Keep the local done definition."\n'
+            "files:\n"
+            "  - src/a.ts\n"
+            "commit: abc123\n"
+            'reason: "Held for review."\n'
+            'linear_id: "SODA-7"\n'
+            "---\n\n"
+            "old body\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "in-review"
+            issues.mkdir(parents=True)
+            (issues / "0007-soda-7.md").write_text(old, encoding="utf-8")
+            fresh = importer.render(
+                {
+                    "identifier": "SODA-7",
+                    "title": "New title from Linear",
+                    "description": "Updated Linear description for the forced import.",
+                    "state": {"type": "unstarted", "name": "Todo"},
+                    "priority": 2,
+                },
+                "0007",
+                "open",
+                "",
+            )
+            kept = importer.preserve_wcp_fields(fresh, issues.parent, "SODA-7")
+            front = kept.split("---", 2)[1]
+            self.assertIn("\nstatus: in-review\n", front)
+            self.assertNotIn("\nstatus: open\n", front)
+            self.assertIn("assignee: agent-1", kept)
+            self.assertIn("lease_expires: 2026-09-26T18:00:00Z", kept)
+            self.assertIn("  - src/a.ts", kept)
+            self.assertIn("commit: abc123", kept)
+            self.assertIn('reason: "Held for review."', kept)
+            self.assertIn("New title from Linear", kept)
+            self.assertEqual(importer.stored_status(issues.parent, "SODA-7"), "in-review")
+            untouched = importer.preserve_wcp_fields(fresh, issues.parent, "SODA-8")
+            self.assertEqual(untouched, fresh)
 
     def test_issues_root_rejects_a_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

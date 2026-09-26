@@ -444,6 +444,84 @@ def carry_notion(body: str, issues: Path, linear_id: str) -> str:
     return body
 
 
+WCP_OWNED_FIELDS = ("status", "assignee", "lease_expires", "files", "commit", "reason")
+
+
+def existing_issue_text(issues: Path, linear_id: str) -> str:
+    if not issues.exists():
+        return ""
+    for path in issues.rglob("*.md"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if parse_linear_id(text) == linear_id:
+            return text
+    return ""
+
+
+def front_field(front: str, key: str) -> str | None:
+    lines = front.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.startswith(f"{key}:"):
+            start = index
+            break
+    if start is None:
+        return None
+    end = start + 1
+    while end < len(lines) and (lines[end].startswith(" ") or lines[end].startswith("\t")):
+        end += 1
+    return "\n".join(lines[start:end])
+
+
+def replace_front_field(front: str, key: str, block: str) -> str:
+    lines = front.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.startswith(f"{key}:"):
+            start = index
+            break
+    if start is None:
+        return front
+    end = start + 1
+    while end < len(lines) and (lines[end].startswith(" ") or lines[end].startswith("\t")):
+        end += 1
+    replaced = [*lines[:start], *block.splitlines(), *lines[end:]]
+    text = "\n".join(replaced)
+    if front.endswith("\n"):
+        text += "\n"
+    return text
+
+
+def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
+    """Keep local ticket state when a later import rewrites Linear-owned fields."""
+    old = existing_issue_text(issues, linear_id)
+    if not old:
+        return body
+    old_front = frontmatter_block(old)
+    parts = body.split("---", 2)
+    if len(parts) < 3:
+        return body
+    new_front = parts[1]
+    for key in WCP_OWNED_FIELDS:
+        block = front_field(old_front, key)
+        if block is None:
+            continue
+        new_front = replace_front_field(new_front, key, block)
+    return f"---{new_front}---{parts[2]}"
+
+
+def stored_status(issues: Path, linear_id: str) -> str:
+    old = existing_issue_text(issues, linear_id)
+    if not old:
+        return ""
+    value = str(front_value(frontmatter_block(old), "status") or "").strip()
+    if value in FOLDERS:
+        return value
+    return ""
+
+
 def id_owned_by_other(issues: Path, wcp_id: str, linear_id: str) -> Path | None:
     if not issues.exists():
         return None
@@ -678,21 +756,24 @@ def main() -> None:
     planned = []
     for issue in sorted(found, key=lambda item: assigned[item["identifier"]]):
         state = issue.get("state") or {}
-        status, reason = map_status(state.get("type") or "", state.get("name") or "")
+        linear_status, linear_reason = map_status(state.get("type") or "", state.get("name") or "")
         wcp_id = assigned[issue["identifier"]]
         linear_id = require_linear_identifier(issue["identifier"])
+        status = stored_status(root, linear_id) or linear_status
         taken = id_owned_by_other(root, wcp_id, linear_id)
         if taken is not None:
             raise SystemExit(
                 f"WCP id {wcp_id} is already used by {taken} and is not {linear_id}. "
                 "Move that ticket or pick another id before --force."
             )
-        planned.append((issue, status, reason, wcp_id, linear_id))
+        planned.append((issue, status, linear_status, linear_reason, wcp_id, linear_id))
 
     written = 0
-    for issue, status, reason, wcp_id, linear_id in planned:
+    for issue, status, linear_status, linear_reason, wcp_id, linear_id in planned:
         path = root / status / filename_for(issue, wcp_id)
-        body = carry_notion(render(issue, wcp_id, status, reason), root, linear_id)
+        body = render(issue, wcp_id, linear_status, linear_reason)
+        body = carry_notion(body, root, linear_id)
+        body = preserve_wcp_fields(body, root, linear_id)
         replace_issue_file(root, path, body, linear_id)
         written += 1
     print(json.dumps({"written": written, "root": str(root)}))

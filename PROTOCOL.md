@@ -256,7 +256,7 @@ mv .WCP .wcp-tmp && mv .wcp-tmp .wcp
 
 Two steps, because a case-insensitive volume treats those names as one directory. Hooks allow `issues/` under either spelling and reject every other path under either folder. While the checkout is still on `.WCP/`, init also writes the four occupancy gitignore lines with that spelling.
 
-If both `.wcp/` and `.WCP/` exist as directory entries, `wcp` refuses to start and `wcp doctor` exits non-zero. Stop any daemon, then migrate. Choosing `.wcp/` while a daemon is still on `.WCP/` would start a second daemon on the same checkout.
+If both `.wcp/` and `.WCP/` exist as directory entries, `wcp` refuses to start and `wcp doctor` exits non-zero. Stop any daemon. Do not rename one folder onto the other. That nests a tree, and the legacy queue and runtime database are left behind. Copy issue files from `.WCP/issues/` into `.wcp/issues/` only when the destination file is missing, keep the runtime database you still need, then remove `.WCP/` after checking the copy.
 
 ### Ticket lease
 

@@ -29,12 +29,14 @@ export function wcpDirNames(root: string): { canonical: boolean; legacy: boolean
 
 export type WcpDirEntries = { canonical: boolean; legacy: boolean };
 
+/** Both folders exist. The one-folder rename nests a tree, so it is not the fix. */
+export const DUAL_DIR_LINE =
+  "WCP refuses to run while both .wcp/ and .WCP/ exist. Stop any daemon. Do not rename one folder onto the other; that nests a tree. Copy issue files from .WCP/issues/ into .wcp/issues/ only when the destination file is missing, keep the runtime database you still need, then remove .WCP/ after checking the copy.";
+
 /** Pick the queue folder. Both spellings at once is a second daemon, so refuse. */
 export function wcpDirNameFrom(entries: WcpDirEntries): string {
   if (entries.canonical && entries.legacy) {
-    throw new Error(
-      `WCP refuses to run while both .wcp/ and .WCP/ exist. Stop any daemon, then migrate. If Git tracks the folder: ${MIGRATE_COMMAND}. If it is runtime only: ${MIGRATE_RUNTIME_COMMAND}`,
-    );
+    throw new Error(DUAL_DIR_LINE);
   }
   if (entries.canonical) {
     return WCP_DIR_NAME;
@@ -80,10 +82,7 @@ export function doctorReport(entries: WcpDirEntries): { code: number; lines: str
   if (entries.canonical && entries.legacy) {
     return {
       code: 1,
-      lines: [
-        "wcp: both .wcp/ and .WCP/ exist. Stop any daemon before migrating. WCP will not choose one.",
-        legacyMigrationLine(),
-      ],
+      lines: ["wcp: both .wcp/ and .WCP/ exist. WCP will not choose one.", DUAL_DIR_LINE],
     };
   }
   const state = entries.canonical ? "canonical" : entries.legacy ? "legacy" : "absent";
