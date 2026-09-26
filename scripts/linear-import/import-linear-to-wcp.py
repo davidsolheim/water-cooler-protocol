@@ -453,6 +453,7 @@ WCP_OWNED_FIELDS = (
     "reason",
     "acceptance",
     "scope",
+    "linear_comments",
 )
 
 
@@ -503,6 +504,26 @@ def replace_front_field(front: str, key: str, block: str) -> str:
     return text
 
 
+def ensure_front_field(front: str, key: str, block: str) -> str:
+    if front_field(front, key) is not None:
+        return replace_front_field(front, key, block)
+    if front.endswith("\n"):
+        return front + block + "\n"
+    if front:
+        return front + "\n" + block + "\n"
+    return block + "\n"
+
+
+def comments_section(text: str) -> str:
+    """The fetched comment block, which the comment importer appends after the description."""
+    parts = text.split("---", 2)
+    body = parts[2] if len(parts) >= 3 else ""
+    matches = list(re.finditer(r"(?m)^## Linear comments\s*$", body))
+    if not matches:
+        return ""
+    return body[matches[-1].start() :].strip() + "\n"
+
+
 def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
     """Keep local ticket state when a later import rewrites Linear-owned fields."""
     old = existing_issue_text(issues, linear_id)
@@ -517,8 +538,12 @@ def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
         block = front_field(old_front, key)
         if block is None:
             continue
-        new_front = replace_front_field(new_front, key, block)
-    return f"---{new_front}---{parts[2]}"
+        new_front = ensure_front_field(new_front, key, block)
+    new_body = parts[2]
+    section = comments_section(old) if front_value(old_front, "linear_comments") else ""
+    if section and not new_body.rstrip().endswith(section.strip()):
+        new_body = new_body.rstrip() + "\n\n" + section
+    return f"---{new_front}---{new_body}"
 
 
 def refreshed_issue(

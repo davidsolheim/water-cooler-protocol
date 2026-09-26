@@ -772,6 +772,32 @@ class CodexFollowupTests(unittest.TestCase):
             self.assertFalse((out / "index-03.json").exists())
             self.assertEqual((out / "notes.txt").read_text(encoding="utf-8"), "keep")
 
+    def test_main_keeps_batches_when_the_issue_queue_is_missing(self) -> None:
+        batches = load_script("build-notion-batches.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            out = Path(tmp) / "out"
+            out.mkdir()
+            batch = out / "batch-00.json"
+            index = out / "index-00.json"
+            batch.write_text('{"keep": true}', encoding="utf-8")
+            index.write_text("[]", encoding="utf-8")
+            with self.assertRaises(SystemExit) as caught:
+                batches.main(
+                    [
+                        "--repo",
+                        str(repo),
+                        "--data-source",
+                        "ds",
+                        "--out",
+                        str(out),
+                    ]
+                )
+            self.assertIn("No issue queue", str(caught.exception))
+            self.assertEqual(batch.read_text(encoding="utf-8"), '{"keep": true}')
+            self.assertEqual(index.read_text(encoding="utf-8"), "[]")
+
     def test_primary_then_rest_keeps_ids_already_on_disk(self) -> None:
         importer = load_script("import-linear-to-wcp.py")
 
@@ -877,6 +903,39 @@ class CodexFollowupTests(unittest.TestCase):
             fresh = importer.render(issue, "0007", "open", "")
             untouched = importer.preserve_wcp_fields(fresh, issues.parent, "SODA-8")
             self.assertEqual(untouched, fresh)
+
+    def test_refreshed_issue_keeps_fetched_linear_comments(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "Old description.\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "Ship the token rotation.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+                "priority": 2,
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertIn("linear_comments: fetched", front)
+            self.assertIn("## Linear comments", body)
+            self.assertIn("Ship the token rotation.", body)
+            self.assertIn("Updated Linear description for the forced import.", body)
 
     def test_issues_root_rejects_a_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
