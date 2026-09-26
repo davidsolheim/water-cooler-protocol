@@ -1085,6 +1085,52 @@ class CodexFollowupTests(unittest.TestCase):
             self.assertIn("First comment stays.", body)
             self.assertNotIn("decoy comment", body)
 
+    def test_refreshed_issue_drops_the_fetched_flag_when_comments_are_gone(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "No comment section was stored.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front = kept.split("---", 2)[1]
+            self.assertNotIn("linear_comments:", front)
+
+    def test_comment_block_escapes_sentinel_text(self) -> None:
+        comments = load_script("import-linear-comments.py")
+        block, count, truncated = comments.comment_block(
+            "SODA-7",
+            {
+                "nodes": [
+                    {
+                        "user": {"name": "Ada"},
+                        "createdAt": "2026-09-01T00:00:00Z",
+                        "body": "<!-- wcp:linear-comments -->",
+                    }
+                ],
+                "pageInfo": {"hasNextPage": False},
+            },
+        )
+        self.assertEqual(count, 1)
+        self.assertFalse(truncated)
+        self.assertIn("< !-- wcp:linear-comments -->", block)
+        self.assertEqual(block.count("<!-- wcp:linear-comments -->"), 1)
+
     def test_issues_root_rejects_a_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"

@@ -159,7 +159,11 @@ COMMENT_END = "<!-- /wcp:linear-comments -->"
 
 
 def shield_comment_text(body: str) -> str:
-    return body.replace(COMMENT_START, "").replace(COMMENT_END, "")
+    """Break delimiter spellings without dropping the characters the author wrote."""
+    return (
+        body.replace(COMMENT_START, "< !-- wcp:linear-comments -->")
+        .replace(COMMENT_END, "< !-- /wcp:linear-comments -->")
+    )
 
 
 def comment_block(identifier: str, comments: dict) -> tuple[str, int, bool]:

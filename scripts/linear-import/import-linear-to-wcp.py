@@ -504,6 +504,24 @@ def replace_front_field(front: str, key: str, block: str) -> str:
     return text
 
 
+def remove_front_field(front: str, key: str) -> str:
+    lines = front.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.startswith(f"{key}:"):
+            start = index
+            break
+    if start is None:
+        return front
+    end = start + 1
+    while end < len(lines) and (lines[end].startswith(" ") or lines[end].startswith("\t")):
+        end += 1
+    text = "\n".join(lines[:start] + lines[end:])
+    if front.endswith("\n"):
+        text += "\n"
+    return text
+
+
 def ensure_front_field(front: str, key: str, block: str) -> str:
     if front_field(front, key) is not None:
         return replace_front_field(front, key, block)
@@ -558,7 +576,10 @@ def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
             continue
         new_front = ensure_front_field(new_front, key, block)
     new_body = parts[2]
-    section = comments_section(old) if front_value(old_front, "linear_comments") else ""
+    fetched = bool(front_value(old_front, "linear_comments"))
+    section = comments_section(old) if fetched else ""
+    if fetched and not section:
+        new_front = remove_front_field(new_front, "linear_comments")
     if section and not new_body.rstrip().endswith(section.strip()):
         new_body = new_body.rstrip() + "\n\n" + section
     return f"---{new_front}---{new_body}"
