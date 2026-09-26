@@ -68,7 +68,7 @@ When more than one team shares the workspace, pass every team key that should be
 
 `identity` uses each Linear issue number as the WCP id, zero-padded to 4 digits (`SODA-7` is `0007`). It fails if two selected teams share a number.
 
-`primary-then-rest` keeps the first `--teams` key's numbers and assigns every other selected team the next free ids, sorted by team key then number.
+`primary-then-rest` keeps the first `--teams` key's numbers and assigns every other selected team the next free ids, sorted by team key then number. A later run reuses the WCP id already stored for each `linear_id`. New issues take the next id after every numeric id already in the queue, so an added primary issue does not renumber the other teams. The scripts refuse a checkout that has both `.wcp/` and `.WCP/`.
 
 Filenames are `NNNN-<linear-id>-<slug>.md`, for example `0007-soda-7-short-title.md`.
 

@@ -64,11 +64,10 @@ def issue_md(linear_id: str, wcp_id: str = "0007", extra: str = "") -> str:
 
 
 class WcpDirNameTests(unittest.TestCase):
-    def test_entries_prefer_canonical_when_both_exist(self) -> None:
-        self.assertEqual(
-            wcp_dir_name_from_entries([".wcp", ".WCP", "src"]),
-            WCP_DIR_NAME,
-        )
+    def test_entries_refuse_when_both_exist(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            wcp_dir_name_from_entries([".wcp", ".WCP", "src"])
+        self.assertIn("both .wcp/ and .WCP/", str(caught.exception))
 
     def test_entries_use_legacy_when_it_is_the_only_queue_dir(self) -> None:
         self.assertEqual(wcp_dir_name_from_entries([".WCP", "src"]), LEGACY_WCP_DIR_NAME)
@@ -751,6 +750,59 @@ class CodexFollowupTests(unittest.TestCase):
             self.assertFalse((out / "batch-03.json").exists())
             self.assertFalse((out / "index-03.json").exists())
             self.assertEqual((out / "notes.txt").read_text(encoding="utf-8"), "keep")
+
+    def test_primary_then_rest_keeps_ids_already_on_disk(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+
+        def issue(identifier: str, team: str) -> dict:
+            return {"identifier": identifier, "team": {"key": team}}
+
+        fresh = [
+            issue("SODA-1", "SODA"),
+            issue("SODA-3", "SODA"),
+            issue("ENG-2", "ENG"),
+            issue("HR-1", "HR"),
+        ]
+        assigned, _notes = importer.assign_ids(fresh, ["SODA", "ENG", "HR"], "primary-then-rest")
+        self.assertEqual(
+            assigned,
+            {"SODA-1": "0001", "SODA-3": "0003", "ENG-2": "0004", "HR-1": "0005"},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007-soda-7.md").write_text(
+                '---\nid: "0007"\nlinear_id: "SODA-7"\n---\n\n',
+                encoding="utf-8",
+            )
+            (issues / "0012-eng-3.md").write_text(
+                '---\nid: "0012"\nlinear_id: "ENG-3"\n---\n\n',
+                encoding="utf-8",
+            )
+            (issues / "0123-native.md").write_text(
+                "---\nid: 0123\nstatus: open\n---\n\n",
+                encoding="utf-8",
+            )
+            mapping, reserved = importer.queue_id_state(issues.parent)
+            self.assertEqual(mapping, {"SODA-7": "0007", "ENG-3": "0012"})
+            self.assertIn(7, reserved)
+            self.assertIn(12, reserved)
+            self.assertIn(123, reserved)
+            found = [
+                issue("SODA-7", "SODA"),
+                issue("SODA-12", "SODA"),
+                issue("ENG-3", "ENG"),
+                issue("ENG-9", "ENG"),
+            ]
+            again, notes = importer.assign_ids(
+                found, ["SODA", "ENG"], "primary-then-rest", mapping, reserved
+            )
+            self.assertEqual(again["SODA-7"], "0007")
+            self.assertEqual(again["ENG-3"], "0012")
+            self.assertEqual(again["SODA-12"], "0124")
+            self.assertEqual(again["ENG-9"], "0125")
+            self.assertIn("ENG-3 -> 0012", notes)
+            self.assertIn("SODA-12 -> 0124", notes)
 
     def test_issues_root_rejects_a_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

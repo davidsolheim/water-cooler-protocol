@@ -1,4 +1,4 @@
-"""Resolve the live WCP queue directory. Matches src/paths.ts wcpDirName."""
+"""Resolve the live WCP queue directory. Matches src/paths.ts wcpDirNameFrom."""
 
 from __future__ import annotations
 
@@ -30,9 +30,16 @@ def wcp_dir_names(root: Path) -> dict[str, bool]:
 
 
 def wcp_dir_name_from_entries(names: list[str]) -> str:
-    if WCP_DIR_NAME in names:
+    canonical = WCP_DIR_NAME in names
+    legacy = LEGACY_WCP_DIR_NAME in names
+    if canonical and legacy:
+        raise ValueError(
+            "WCP refuses to run while both .wcp/ and .WCP/ exist. "
+            "Stop any daemon, then migrate."
+        )
+    if canonical:
         return WCP_DIR_NAME
-    if LEGACY_WCP_DIR_NAME in names:
+    if legacy:
         return LEGACY_WCP_DIR_NAME
     return WCP_DIR_NAME
 

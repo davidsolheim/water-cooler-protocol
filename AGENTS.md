@@ -31,4 +31,4 @@ This repo is the Water Cooler Protocol tool (`wcp` / `wcpd`), not a Next app.
 bun test
 ```
 
-Protocol behavior (exclusive lease, TTL, overtake, drift, write_ok, test-before-claim, unclaimed test files and new files, self-named agents) must stay covered. Do not reintroduce `wait` from `legacy/wcooler.sh`.
+`bun test` also runs the Python unittest suite under `scripts/linear-import/`. Protocol behavior (exclusive lease, TTL, overtake, drift, write_ok, test-before-claim, unclaimed test files and new files, self-named agents) must stay covered. Do not reintroduce `wait` from `legacy/wcooler.sh`.

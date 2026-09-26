@@ -278,7 +278,38 @@ def render(issue: dict, wcp_id: str, status: str, reason: str) -> str:
     return "\n".join(lines)
 
 
-def assign_ids(found: list[dict], teams: list[str], rule: str) -> tuple[dict[str, str], list[str]]:
+def queue_id_state(issues: Path) -> tuple[dict[str, str], set[int]]:
+    """Map linear_id to the WCP id already on disk, and reserve every numeric id."""
+    by_linear: dict[str, str] = {}
+    reserved: set[int] = set()
+    if not issues.exists():
+        return by_linear, reserved
+    for path in issues.rglob("*.md"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        front = frontmatter_block(text)
+        wcp_id = str(front_value(front, "id") or "").strip()
+        if wcp_id.isdigit():
+            reserved.add(int(wcp_id))
+        linear_id = parse_linear_id(text)
+        if not linear_id or not wcp_id:
+            continue
+        previous = by_linear.get(linear_id)
+        if previous and previous != wcp_id:
+            raise SystemExit(f"{linear_id} is stored as both {previous} and {wcp_id}")
+        by_linear[linear_id] = wcp_id
+    return by_linear, reserved
+
+
+def assign_ids(
+    found: list[dict],
+    teams: list[str],
+    rule: str,
+    existing: dict[str, str] | None = None,
+    reserved: set[int] | None = None,
+) -> tuple[dict[str, str], list[str]]:
     assigned: dict[str, str] = {}
     notes: list[str] = []
     if rule == "identity":
@@ -295,29 +326,58 @@ def assign_ids(found: list[dict], teams: list[str], rule: str) -> tuple[dict[str
         return assigned, notes
     if rule == "primary-then-rest":
         primary = teams[0]
-        used_numbers: set[int] = set()
+        found_ids = {issue["identifier"] for issue in found}
+        used_numbers: set[int] = set(reserved or ())
+        primary_numbers: dict[int, str] = {}
         for issue in found:
             team = (issue.get("team") or {}).get("key") or ""
             if team != primary:
                 continue
             number = number_of(issue["identifier"])
+            previous = primary_numbers.get(number)
+            if previous:
+                raise SystemExit(f"Duplicate {primary} number {number}: {previous} and {issue['identifier']}")
+            primary_numbers[number] = issue["identifier"]
+        owners: dict[int, str] = {}
+        for linear_id, wcp_id in (existing or {}).items():
+            if wcp_id.isdigit():
+                number = int(wcp_id)
+                owner = owners.get(number)
+                if owner and owner != linear_id:
+                    raise SystemExit(f"WCP id {wcp_id} is stored for both {owner} and {linear_id}")
+                owners[number] = linear_id
+                used_numbers.add(number)
+            if linear_id not in found_ids:
+                continue
+            assigned[linear_id] = wcp_id
+            if not wcp_id.isdigit() or int(wcp_id) != number_of(linear_id):
+                notes.append(f"{linear_id} -> {wcp_id}")
+        kept = set(assigned)
+        deferred: list[dict] = []
+        for issue in found:
+            team = (issue.get("team") or {}).get("key") or ""
+            if team != primary or issue["identifier"] in kept:
+                continue
+            number = number_of(issue["identifier"])
             if number in used_numbers:
-                raise SystemExit(f"Duplicate {primary} number {number}")
+                deferred.append(issue)
+                continue
             assigned[issue["identifier"]] = f"{number:04d}"
             used_numbers.add(number)
         next_id = (max(used_numbers) + 1) if used_numbers else 1
         others = [
             issue
             for issue in found
-            if ((issue.get("team") or {}).get("key") or "") != primary
+            if issue["identifier"] not in assigned and ((issue.get("team") or {}).get("key") or "") != primary
         ]
-        for issue in sorted(
+        pending = sorted(deferred, key=lambda item: number_of(item["identifier"])) + sorted(
             others,
             key=lambda item: (
                 (item.get("team") or {}).get("key") or "",
                 number_of(item["identifier"]),
             ),
-        ):
+        )
+        for issue in pending:
             while next_id in used_numbers:
                 next_id += 1
             wcp_id = f"{next_id:04d}"
@@ -582,7 +642,12 @@ def main() -> None:
             raise SystemExit(f"Duplicate identifier: {seen[key]} and {issue['identifier']}")
         seen[key] = issue["identifier"]
 
-    assigned, notes = assign_ids(found, teams, args.id_rule)
+    try:
+        root = issues_root(args.repo)
+    except ValueError as err:
+        raise SystemExit(str(err)) from err
+    existing_map, reserved_ids = queue_id_state(root)
+    assigned, notes = assign_ids(found, teams, args.id_rule, existing_map, reserved_ids)
     summary = build_summary(found, assigned, notes, args.id_rule)
     print("Linear status:")
     for name, count in summary["linear_status"].items():
@@ -602,7 +667,6 @@ def main() -> None:
     if args.dry_run:
         return
 
-    root = issues_root(args.repo)
     existing = list(root.rglob("*.md")) if root.exists() else []
     if existing and not args.force:
         raise SystemExit(
