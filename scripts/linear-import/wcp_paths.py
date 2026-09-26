@@ -71,6 +71,19 @@ def require_linear_identifier(value: str) -> str:
     return value
 
 
+def front_value(front: str, key: str):
+    """Read one frontmatter field. Quoted JSON and bare values both count, same as grab()."""
+    match = re.search(rf"^{re.escape(key)}: (.*)$", front, re.M)
+    if not match:
+        return ""
+    raw = match.group(1).strip()
+    if not raw:
+        return ""
+    if raw.startswith('"'):
+        return json.loads(raw)
+    return raw
+
+
 def parse_linear_id(text: str) -> str | None:
     match = LINEAR_ID_LINE.search(text)
     if not match:

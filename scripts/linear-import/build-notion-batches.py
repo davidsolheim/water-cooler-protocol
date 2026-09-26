@@ -8,17 +8,11 @@ import json
 import re
 from pathlib import Path
 
-from wcp_paths import issues_root
+from wcp_paths import front_value, issues_root
 
 
 def grab(front: str, key: str):
-    match = re.search(rf"^{re.escape(key)}: (.*)$", front, re.M)
-    if not match:
-        return ""
-    raw = match.group(1).strip()
-    if raw.startswith('"'):
-        return json.loads(raw)
-    return raw
+    return front_value(front, key)
 
 
 def labels_of(front: str) -> list[str]:

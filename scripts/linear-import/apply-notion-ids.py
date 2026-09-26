@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from wcp_paths import issues_root, write_under_issues
+from wcp_paths import front_value, issues_root, write_under_issues
 
 
 def pages_from(data) -> list[dict]:
@@ -73,6 +73,27 @@ def load_pages(sources: list[Path]) -> dict[str, tuple[str, str]]:
     return found
 
 
+def issue_id(text: str) -> str:
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return ""
+    value = front_value(parts[1], "id")
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def queue_by_id(root: Path) -> dict[str, Path]:
+    found: dict[str, Path] = {}
+    if not root.exists():
+        return found
+    for path in sorted(root.rglob("*.md")):
+        wcp = issue_id(path.read_text(encoding="utf-8"))
+        if wcp:
+            found[wcp] = path
+    return found
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True, type=Path)
@@ -87,17 +108,11 @@ def main() -> None:
 
     root = issues_root(args.repo)
     found = load_pages([args.results])
-    by_id: dict[str, Path] = {}
+    by_id = queue_by_id(root)
     filled = 0
     missing = []
-    for path in sorted(root.rglob("*.md")):
+    for wcp, path in by_id.items():
         text = path.read_text(encoding="utf-8")
-        front = text.split("---", 2)[1]
-        match = re.search(r'^id: "(.*)"$', front, re.M)
-        if not match:
-            continue
-        wcp = match.group(1)
-        by_id[wcp] = path
         if re.search(r'^notion_page_id: ".+"$', text, re.M):
             filled += 1
         else:
@@ -119,18 +134,14 @@ def main() -> None:
 
     filled_after = 0
     missing_after = []
-    for path in sorted(root.rglob("*.md")):
+    for wcp, path in queue_by_id(root).items():
         text = path.read_text(encoding="utf-8")
-        front = text.split("---", 2)[1]
-        match = re.search(r'^id: "(.*)"$', front, re.M)
-        if not match:
-            continue
         if re.search(r'^notion_page_id: ".+"$', text, re.M) and re.search(
             r'^notion_url: "https?://.+"$', text, re.M
         ):
             filled_after += 1
         else:
-            missing_after.append(match.group(1))
+            missing_after.append(wcp)
 
     print(
         json.dumps(

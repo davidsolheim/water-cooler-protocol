@@ -234,6 +234,47 @@ class DestSymlinkWriteTests(unittest.TestCase):
             self.assertIn("page-1", dest.read_text(encoding="utf-8"))
             self.assertEqual(outside.read_text(encoding="utf-8"), original)
 
+    def test_queue_by_id_matches_quoted_and_unquoted_ids(self) -> None:
+        apply = load_script("apply-notion-ids.py")
+        batches = load_script("build-notion-batches.py")
+        quoted = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            "notion_page_id:\n"
+            "notion_url:\n"
+            "---\n\n"
+            "imported\n"
+        )
+        native = (
+            "---\n"
+            "id: 0123\n"
+            "status: open\n"
+            "notion_page_id:\n"
+            "notion_url:\n"
+            "---\n\n"
+            "native\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            quoted_path = issues / "0007-soda-7.md"
+            native_path = issues / "0123-native.md"
+            quoted_path.write_text(quoted, encoding="utf-8")
+            native_path.write_text(native, encoding="utf-8")
+            by_id = apply.queue_by_id(issues.parent)
+            self.assertEqual(by_id["0007"], quoted_path)
+            self.assertEqual(by_id["0123"], native_path)
+            self.assertEqual(batches.grab(native.split("---", 2)[1], "id"), "0123")
+            self.assertEqual(apply.issue_id(native), "0123")
+            self.assertTrue(
+                apply.fill_notion_ids(issues.parent, native_path, "page-native", "https://notion.example/native")
+            )
+            written = native_path.read_text(encoding="utf-8")
+            self.assertIn('notion_page_id: "page-native"', written)
+            self.assertIn('notion_url: "https://notion.example/native"', written)
+            self.assertEqual(apply.queue_by_id(issues.parent)["0123"], native_path)
+
     def test_fix_wcp_acceptance_leaves_outside_symlink_target_unchanged(self) -> None:
         fix = load_script("fix-wcp-acceptance.py")
         original = (
