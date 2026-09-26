@@ -522,9 +522,9 @@ def comments_section(text: str) -> str:
     """The comment block the importer appended, not a copy pasted inside a comment."""
     parts = text.split("---", 2)
     body = parts[2] if len(parts) >= 3 else ""
-    start = body.find(COMMENT_START)
-    finish = body.find(COMMENT_END, start + len(COMMENT_START)) if start != -1 else -1
-    if start != -1 and finish != -1:
+    start = body.rfind(COMMENT_START)
+    finish = body.rfind(COMMENT_END)
+    if start != -1 and finish > start:
         return body[start : finish + len(COMMENT_END)].strip() + "\n"
     authors = list(
         re.finditer(
