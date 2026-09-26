@@ -515,13 +515,19 @@ def ensure_front_field(front: str, key: str, block: str) -> str:
 
 
 def comments_section(text: str) -> str:
-    """The fetched comment block, which the comment importer appends after the description."""
+    """The fetched comment block the importer appends, not a heading inside a comment."""
     parts = text.split("---", 2)
     body = parts[2] if len(parts) >= 3 else ""
-    matches = list(re.finditer(r"(?m)^## Linear comments\s*$", body))
-    if not matches:
+    structured = re.search(
+        r"(?m)^## Linear comments\n\n(?:_No Linear comments\._|### )",
+        body,
+    )
+    if structured:
+        return body[structured.start() :].strip() + "\n"
+    plain = re.search(r"(?m)^## Linear comments\s*$", body)
+    if not plain:
         return ""
-    return body[matches[-1].start() :].strip() + "\n"
+    return body[plain.start() :].strip() + "\n"
 
 
 def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
