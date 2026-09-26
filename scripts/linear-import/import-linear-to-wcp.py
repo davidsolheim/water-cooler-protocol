@@ -514,22 +514,32 @@ def ensure_front_field(front: str, key: str, block: str) -> str:
     return block + "\n"
 
 
+COMMENT_START = "<!-- wcp:linear-comments -->"
+COMMENT_END = "<!-- /wcp:linear-comments -->"
+
+
 def comments_section(text: str) -> str:
-    """The comment block the importer appended, not a heading inside the description."""
+    """The comment block the importer appended, not a copy pasted inside a comment."""
     parts = text.split("---", 2)
     body = parts[2] if len(parts) >= 3 else ""
-    # The importer writes "### Name — ISO-time" or the empty-comment line.
-    # A description heading followed by an ordinary "### Title" is not that block.
-    # Use the last importer-shaped block so an earlier description copy is left behind.
-    matches = list(
+    start = body.find(COMMENT_START)
+    finish = body.find(COMMENT_END, start + len(COMMENT_START)) if start != -1 else -1
+    if start != -1 and finish != -1:
+        return body[start : finish + len(COMMENT_END)].strip() + "\n"
+    authors = list(
         re.finditer(
-            r"(?m)^## Linear comments\n\n(?:_No Linear comments\._|### .+ — \d{4}-\d{2}-\d{2})",
+            r"(?m)^## Linear comments\n\n### .+ — \d{4}-\d{2}-\d{2}",
             body,
         )
     )
-    if not matches:
-        return ""
-    return body[matches[-1].start() :].strip() + "\n"
+    if authors:
+        section = body[authors[0].start() :].strip()
+        return f"{COMMENT_START}\n{section}\n{COMMENT_END}\n"
+    empty = re.search(r"(?m)^## Linear comments\n\n_No Linear comments\._\s*\Z", body)
+    if empty:
+        section = body[empty.start() :].strip()
+        return f"{COMMENT_START}\n{section}\n{COMMENT_END}\n"
+    return ""
 
 
 def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
