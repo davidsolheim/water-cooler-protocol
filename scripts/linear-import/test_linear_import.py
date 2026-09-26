@@ -1175,10 +1175,41 @@ class CodexFollowupTests(unittest.TestCase):
             }
             _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
             front, body = kept.split("---", 2)[1:]
-            self.assertIn("linear_comments: fetched", front)
-            self.assertIn("### Ada — 2026-09-01T00:00:00Z", body)
-            self.assertIn("First comment stays.", body)
+            self.assertNotIn("linear_comments:", front)
             self.assertNotIn("stale description tail", body)
+            self.assertIn("Updated Linear description for the forced import.", body)
+
+    def test_refreshed_issue_does_not_keep_a_flag_when_a_comment_pastes_a_block(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "First comment stays.\n\n"
+            "### Bea — 2026-09-02T00:00:00Z\n\n"
+            "## Linear comments\n\n"
+            "### Pat — 2026-09-03T00:00:00Z\n\n"
+            "inner paste only\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertNotIn("linear_comments:", front)
+            self.assertNotIn("inner paste only", body)
             self.assertIn("Updated Linear description for the forced import.", body)
 
     def test_comment_block_escapes_sentinel_text(self) -> None:

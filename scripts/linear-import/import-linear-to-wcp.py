@@ -557,11 +557,13 @@ def comments_section(text: str) -> str:
             body,
         )
     )
-    if authors:
-        # A description can contain an earlier pasted copy. The importer appends
-        # the live block at the end of the file.
-        section = shield_comment_markers(body[authors[-1].start() :].strip())
+    if len(authors) == 1:
+        section = shield_comment_markers(body[authors[0].start() :].strip())
         return f"{COMMENT_START}\n{section}\n{COMMENT_END}\n"
+    if len(authors) > 1:
+        # A description and a comment can both contain this shape. Guessing either
+        # boundary drops comments or copies stale description text.
+        return ""
     empty = re.search(r"(?m)^## Linear comments\n\n_No Linear comments\._\s*\Z", body)
     if empty:
         section = shield_comment_markers(body[empty.start() :].strip())
