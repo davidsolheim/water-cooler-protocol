@@ -38,7 +38,7 @@ def clear_generated_batches(out: Path) -> None:
         stale.unlink()
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--data-source", required=True, help="Notion data source id")
@@ -48,11 +48,13 @@ def main() -> None:
     parser.add_argument("--title-property", default="Issue name")
     parser.add_argument("--url-property", default="Issue URL")
     parser.add_argument("--dry-run", action="store_true", help="Count pages and write nothing")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.batch < 1 or args.batch > 80:
         raise SystemExit("--batch must be from 1 to 80")
 
     root = issues_root(args.repo)
+    if not root.is_dir():
+        raise SystemExit(f"No issue queue at {root}")
     pages = []
     index = []
     for path in sorted(root.rglob("*.md")):

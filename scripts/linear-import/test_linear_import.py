@@ -772,6 +772,32 @@ class CodexFollowupTests(unittest.TestCase):
             self.assertFalse((out / "index-03.json").exists())
             self.assertEqual((out / "notes.txt").read_text(encoding="utf-8"), "keep")
 
+    def test_main_keeps_batches_when_the_issue_queue_is_missing(self) -> None:
+        batches = load_script("build-notion-batches.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            out = Path(tmp) / "out"
+            out.mkdir()
+            batch = out / "batch-00.json"
+            index = out / "index-00.json"
+            batch.write_text('{"keep": true}', encoding="utf-8")
+            index.write_text("[]", encoding="utf-8")
+            with self.assertRaises(SystemExit) as caught:
+                batches.main(
+                    [
+                        "--repo",
+                        str(repo),
+                        "--data-source",
+                        "ds",
+                        "--out",
+                        str(out),
+                    ]
+                )
+            self.assertIn("No issue queue", str(caught.exception))
+            self.assertEqual(batch.read_text(encoding="utf-8"), '{"keep": true}')
+            self.assertEqual(index.read_text(encoding="utf-8"), "[]")
+
     def test_primary_then_rest_keeps_ids_already_on_disk(self) -> None:
         importer = load_script("import-linear-to-wcp.py")
 
@@ -877,6 +903,383 @@ class CodexFollowupTests(unittest.TestCase):
             fresh = importer.render(issue, "0007", "open", "")
             untouched = importer.preserve_wcp_fields(fresh, issues.parent, "SODA-8")
             self.assertEqual(untouched, fresh)
+
+    def test_refreshed_issue_keeps_fetched_linear_comments(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "Old description.\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "Ship the token rotation.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+                "priority": 2,
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertIn("linear_comments: fetched", front)
+            self.assertIn("## Linear comments", body)
+            self.assertIn("Ship the token rotation.", body)
+            self.assertIn("Updated Linear description for the forced import.", body)
+
+    def test_refreshed_issue_keeps_comments_before_an_inner_heading(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "Old description mentions ## Linear comments in prose.\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "First comment stays.\n\n"
+            "### Bea — 2026-09-02T00:00:00Z\n\n"
+            "## Linear comments\n\n"
+            "Trailing note inside the comment.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertIn("linear_comments: fetched", front)
+            self.assertIn("### Ada — 2026-09-01T00:00:00Z", body)
+            self.assertIn("First comment stays.", body)
+            self.assertIn("### Bea — 2026-09-02T00:00:00Z", body)
+            self.assertIn("Trailing note inside the comment.", body)
+
+    def test_refreshed_issue_skips_a_description_heading_named_linear_comments(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "## Linear comments\n\n"
+            "### Expected behavior\n\n"
+            "This stale description tail must not be appended again.\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "First comment stays.\n\n"
+            "### Bea — 2026-09-02T00:00:00Z\n\n"
+            "## Linear comments\n\n"
+            "Trailing note inside the comment.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertIn("linear_comments: fetched", front)
+            self.assertIn("### Ada — 2026-09-01T00:00:00Z", body)
+            self.assertIn("First comment stays.", body)
+            self.assertIn("### Bea — 2026-09-02T00:00:00Z", body)
+            self.assertIn("Trailing note inside the comment.", body)
+            self.assertNotIn("stale description tail", body)
+            self.assertIn("Updated Linear description for the forced import.", body)
+
+    def test_refreshed_issue_keeps_comments_before_a_pasted_empty_block(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "Old description.\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "First comment stays.\n\n"
+            "### Bea — 2026-09-02T00:00:00Z\n\n"
+            "## Linear comments\n\n"
+            "_No Linear comments._\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertIn("linear_comments: fetched", front)
+            self.assertIn("### Ada — 2026-09-01T00:00:00Z", body)
+            self.assertIn("First comment stays.", body)
+            self.assertIn("### Bea — 2026-09-02T00:00:00Z", body)
+            self.assertIn("_No Linear comments._", body)
+
+    def test_refreshed_issue_uses_the_last_comment_sentinel_pair(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "<!-- wcp:linear-comments -->\n"
+            "decoy comment that must not replace the fetched comments\n"
+            "<!-- /wcp:linear-comments -->\n\n"
+            "<!-- wcp:linear-comments -->\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "First comment stays.\n"
+            "<!-- /wcp:linear-comments -->\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertIn("linear_comments: fetched", front)
+            self.assertIn("### Ada — 2026-09-01T00:00:00Z", body)
+            self.assertIn("First comment stays.", body)
+            self.assertNotIn("decoy comment", body)
+
+    def test_refreshed_issue_ignores_a_description_sentinel_around_legacy_comments(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "<!-- wcp:linear-comments -->\n"
+            "decoy comment that must not replace the fetched comments\n"
+            "<!-- /wcp:linear-comments -->\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "First comment stays.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertIn("linear_comments: fetched", front)
+            self.assertIn("### Ada — 2026-09-01T00:00:00Z", body)
+            self.assertIn("First comment stays.", body)
+            self.assertNotIn("decoy comment", body)
+
+    def test_refreshed_issue_drops_the_fetched_flag_when_comments_are_gone(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "No comment section was stored.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front = kept.split("---", 2)[1]
+            self.assertNotIn("linear_comments:", front)
+
+    def test_refreshed_issue_escapes_a_legacy_sentinel_before_the_next_import(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "See <!-- wcp:linear-comments --> in the note.\n\n"
+            "### Bea — 2026-09-02T00:00:00Z\n\n"
+            "Second comment stays.\n"
+        )
+        issue = {
+            "identifier": "SODA-7",
+            "title": "New title from Linear",
+            "description": "Updated Linear description for the forced import.",
+            "state": {"type": "unstarted", "name": "Todo"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            path = issues / "0007.md"
+            path.write_text(old, encoding="utf-8")
+            _status, once = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            path.write_text(once, encoding="utf-8")
+            _status, twice = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            body = twice.split("---", 2)[2]
+            self.assertIn("### Ada — 2026-09-01T00:00:00Z", body)
+            self.assertIn("### Bea — 2026-09-02T00:00:00Z", body)
+            self.assertIn("Second comment stays.", body)
+            self.assertIn("< !-- wcp:linear-comments -->", body)
+
+    def test_refreshed_issue_skips_a_pasted_comment_block_in_the_description(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Description\n\n"
+            "## Linear comments\n\n"
+            "### Pat — 2026-08-01T00:00:00Z\n\n"
+            "stale description tail\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "First comment stays.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertNotIn("linear_comments:", front)
+            self.assertNotIn("stale description tail", body)
+            self.assertIn("Updated Linear description for the forced import.", body)
+
+    def test_refreshed_issue_does_not_keep_a_flag_when_a_comment_pastes_a_block(self) -> None:
+        importer = load_script("import-linear-to-wcp.py")
+        old = (
+            "---\n"
+            'id: "0007"\n'
+            "status: open\n"
+            'linear_id: "SODA-7"\n'
+            "linear_comments: fetched\n"
+            "---\n\n"
+            "## Linear comments\n\n"
+            "### Ada — 2026-09-01T00:00:00Z\n\n"
+            "First comment stays.\n\n"
+            "### Bea — 2026-09-02T00:00:00Z\n\n"
+            "## Linear comments\n\n"
+            "### Pat — 2026-09-03T00:00:00Z\n\n"
+            "inner paste only\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            issues = Path(tmp) / ".wcp" / "issues" / "open"
+            issues.mkdir(parents=True)
+            (issues / "0007.md").write_text(old, encoding="utf-8")
+            issue = {
+                "identifier": "SODA-7",
+                "title": "New title from Linear",
+                "description": "Updated Linear description for the forced import.",
+                "state": {"type": "unstarted", "name": "Todo"},
+            }
+            _status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
+            front, body = kept.split("---", 2)[1:]
+            self.assertNotIn("linear_comments:", front)
+            self.assertNotIn("inner paste only", body)
+            self.assertIn("Updated Linear description for the forced import.", body)
+
+    def test_comment_block_escapes_sentinel_text(self) -> None:
+        comments = load_script("import-linear-comments.py")
+        block, count, truncated = comments.comment_block(
+            "SODA-7",
+            {
+                "nodes": [
+                    {
+                        "user": {"name": "Ada"},
+                        "createdAt": "2026-09-01T00:00:00Z",
+                        "body": "<!-- wcp:linear-comments -->",
+                    }
+                ],
+                "pageInfo": {"hasNextPage": False},
+            },
+        )
+        self.assertEqual(count, 1)
+        self.assertFalse(truncated)
+        self.assertIn("< !-- wcp:linear-comments -->", block)
+        self.assertEqual(block.count("<!-- wcp:linear-comments -->"), 1)
+        named, _count, _truncated = comments.comment_block(
+            "SODA-7",
+            {
+                "nodes": [
+                    {
+                        "user": {"name": "<!-- wcp:linear-comments -->"},
+                        "createdAt": "2026-09-01T00:00:00Z",
+                        "body": "hello",
+                    }
+                ],
+                "pageInfo": {"hasNextPage": False},
+            },
+        )
+        self.assertIn("### < !-- wcp:linear-comments --> — 2026-09-01T00:00:00Z", named)
+        self.assertEqual(named.count("<!-- wcp:linear-comments -->"), 1)
 
     def test_issues_root_rejects_a_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

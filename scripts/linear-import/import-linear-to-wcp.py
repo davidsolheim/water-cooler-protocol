@@ -453,6 +453,7 @@ WCP_OWNED_FIELDS = (
     "reason",
     "acceptance",
     "scope",
+    "linear_comments",
 )
 
 
@@ -503,6 +504,78 @@ def replace_front_field(front: str, key: str, block: str) -> str:
     return text
 
 
+def remove_front_field(front: str, key: str) -> str:
+    lines = front.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.startswith(f"{key}:"):
+            start = index
+            break
+    if start is None:
+        return front
+    end = start + 1
+    while end < len(lines) and (lines[end].startswith(" ") or lines[end].startswith("\t")):
+        end += 1
+    text = "\n".join(lines[:start] + lines[end:])
+    if front.endswith("\n"):
+        text += "\n"
+    return text
+
+
+def ensure_front_field(front: str, key: str, block: str) -> str:
+    if front_field(front, key) is not None:
+        return replace_front_field(front, key, block)
+    if front.endswith("\n"):
+        return front + block + "\n"
+    if front:
+        return front + "\n" + block + "\n"
+    return block + "\n"
+
+
+COMMENT_START = "<!-- wcp:linear-comments -->"
+COMMENT_END = "<!-- /wcp:linear-comments -->"
+
+
+def shield_comment_markers(text: str) -> str:
+    """Keep quoted delimiter text from being read as the importer's own markers."""
+    return text.replace(COMMENT_START, "< !-- wcp:linear-comments -->").replace(
+        COMMENT_END, "< !-- /wcp:linear-comments -->"
+    )
+
+
+def comments_section(text: str) -> str:
+    """The comment block the importer appended, not a copy pasted inside a comment."""
+    parts = text.split("---", 2)
+    body = parts[2] if len(parts) >= 3 else ""
+    start = body.rfind(COMMENT_START)
+    finish = body.rfind(COMMENT_END)
+    if start != -1 and finish > start:
+        chosen = body[start : finish + len(COMMENT_END)]
+        if re.search(
+            r"(?m)^## Linear comments\n\n(?:_No Linear comments\._|### .+ — \d{4}-\d{2}-\d{2})",
+            chosen,
+        ):
+            return chosen.strip() + "\n"
+    authors = list(
+        re.finditer(
+            r"(?m)^## Linear comments\n\n### .+ — \d{4}-\d{2}-\d{2}",
+            body,
+        )
+    )
+    if len(authors) == 1:
+        section = shield_comment_markers(body[authors[0].start() :].strip())
+        return f"{COMMENT_START}\n{section}\n{COMMENT_END}\n"
+    if len(authors) > 1:
+        # A description and a comment can both contain this shape. Guessing either
+        # boundary drops comments or copies stale description text.
+        return ""
+    empty = re.search(r"(?m)^## Linear comments\n\n_No Linear comments\._\s*\Z", body)
+    if empty:
+        section = shield_comment_markers(body[empty.start() :].strip())
+        return f"{COMMENT_START}\n{section}\n{COMMENT_END}\n"
+    return ""
+
+
 def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
     """Keep local ticket state when a later import rewrites Linear-owned fields."""
     old = existing_issue_text(issues, linear_id)
@@ -517,8 +590,15 @@ def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
         block = front_field(old_front, key)
         if block is None:
             continue
-        new_front = replace_front_field(new_front, key, block)
-    return f"---{new_front}---{parts[2]}"
+        new_front = ensure_front_field(new_front, key, block)
+    new_body = parts[2]
+    fetched = bool(front_value(old_front, "linear_comments"))
+    section = comments_section(old) if fetched else ""
+    if fetched and not section:
+        new_front = remove_front_field(new_front, "linear_comments")
+    if section and not new_body.rstrip().endswith(section.strip()):
+        new_body = new_body.rstrip() + "\n\n" + section
+    return f"---{new_front}---{new_body}"
 
 
 def refreshed_issue(

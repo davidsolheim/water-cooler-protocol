@@ -154,16 +154,28 @@ def fetch_comments_for_ids(token: str, ids: list[str], teams: list[str]) -> dict
     return comments_by_id_from_alias_data(data, kept)
 
 
+COMMENT_START = "<!-- wcp:linear-comments -->"
+COMMENT_END = "<!-- /wcp:linear-comments -->"
+
+
+def shield_comment_text(body: str) -> str:
+    """Break delimiter spellings without dropping the characters the author wrote."""
+    return (
+        body.replace(COMMENT_START, "< !-- wcp:linear-comments -->")
+        .replace(COMMENT_END, "< !-- /wcp:linear-comments -->")
+    )
+
+
 def comment_block(identifier: str, comments: dict) -> tuple[str, int, bool]:
     nodes = comments["nodes"]
-    lines = ["", "## Linear comments", ""]
+    lines = ["", COMMENT_START, "## Linear comments", ""]
     if not nodes:
         lines.append("_No Linear comments._")
     else:
         for node in nodes:
-            who = ((node.get("user") or {}).get("name") or "Someone").strip()
-            when = node.get("createdAt") or ""
-            body = (node.get("body") or "").strip() or "_Empty comment._"
+            who = shield_comment_text(((node.get("user") or {}).get("name") or "Someone").strip())
+            when = shield_comment_text(node.get("createdAt") or "")
+            body = shield_comment_text((node.get("body") or "").strip() or "_Empty comment._")
             lines.append(f"### {who} — {when}")
             lines.append("")
             lines.append(body)
@@ -171,6 +183,7 @@ def comment_block(identifier: str, comments: dict) -> tuple[str, int, bool]:
     truncated = bool(comments["pageInfo"]["hasNextPage"])
     if truncated:
         lines.append("_Older comments exist in Linear beyond the 50 copied here._")
+    lines.append(COMMENT_END)
     lines.append("")
     return "\n".join(lines), len(nodes), truncated
 
