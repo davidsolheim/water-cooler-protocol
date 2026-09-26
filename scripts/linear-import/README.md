@@ -32,7 +32,8 @@ python3 scripts/linear-import/fix-wcp-acceptance.py --repo /path/to/repo
 
 python3 scripts/linear-import/import-linear-comments.py \
   --repo /path/to/repo \
-  --server linear-teton
+  --server linear-teton \
+  --teams SODA
 
 python3 scripts/linear-import/build-notion-batches.py \
   --repo /path/to/repo \
@@ -71,7 +72,7 @@ When more than one team shares the workspace, pass every team key that should be
 
 Filenames are `NNNN-<linear-id>-<slug>.md`, for example `0007-soda-7-short-title.md`.
 
-`import-linear-comments.py` takes `--repo`, `--server`, `--config`, `--folders` (default: every queue folder), `--workers`, and `--dry-run`.
+`import-linear-comments.py` takes `--repo`, `--server`, `--teams` (comma-separated team keys; identifiers whose prefix is not in that list are skipped), `--config`, `--folders` (default: every queue folder), `--workers`, and `--dry-run`. Comments are fetched with one aliased `issue(id:)` GraphQL request per identifier chunk.
 
 `build-notion-batches.py` takes `--repo`, `--data-source`, `--out`, `--tool-name` (default `notion__notion-create-pages`), `--batch` (1–80), `--title-property` (default `Issue name`), `--url-property` (default `Issue URL`), and `--dry-run`.
 

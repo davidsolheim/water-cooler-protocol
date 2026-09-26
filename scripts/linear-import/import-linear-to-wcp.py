@@ -17,7 +17,13 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
-from wcp_paths import QUEUE_FOLDERS as FOLDERS, issues_root, parse_linear_id
+from wcp_paths import (
+    QUEUE_FOLDERS as FOLDERS,
+    issues_root,
+    parse_linear_id,
+    require_linear_identifier,
+    resolve_under_issues,
+)
 
 API = "https://api.linear.app/graphql"
 QUERY = """
@@ -351,11 +357,24 @@ def fetch_all(token: str, teams: list[str]) -> list[dict]:
 
 
 def filename_for(issue: dict, wcp_id: str) -> str:
-    return f"{wcp_id}-{issue['identifier'].lower()}-{slug(issue.get('title') or '')}.md"
+    ident = require_linear_identifier(issue["identifier"])
+    return f"{wcp_id}-{ident.lower()}-{slug(issue.get('title') or '')}.md"
 
 
 def replace_issue_file(issues: Path, dest: Path, body: str, linear_id: str) -> list[Path]:
     """Write dest and delete other markdown files that already carry this linear_id."""
+    linear_id = require_linear_identifier(linear_id)
+    issues_abs = issues.resolve()
+    parent = dest.parent.resolve()
+    if parent == issues_abs or not parent.is_relative_to(issues_abs):
+        raise ValueError(f"{dest} is not under the issues root")
+    rel = parent.relative_to(issues_abs)
+    if not rel.parts or rel.parts[0] not in FOLDERS:
+        raise ValueError(f"{dest} is not under a queue status folder")
+    dest = parent / dest.name
+    if dest.is_symlink():
+        dest.unlink()
+    dest = resolve_under_issues(issues, dest)
     removed: list[Path] = []
     dest_key = dest.resolve()
     if issues.exists():
@@ -371,6 +390,8 @@ def replace_issue_file(issues: Path, dest: Path, body: str, linear_id: str) -> l
             path.unlink()
             removed.append(path)
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_symlink():
+        dest.unlink()
     dest.write_text(body, encoding="utf-8")
     return removed
 
@@ -539,7 +560,7 @@ def main() -> None:
         state = issue.get("state") or {}
         status, reason = map_status(state.get("type") or "", state.get("name") or "")
         wcp_id = assigned[issue["identifier"]]
-        linear_id = issue["identifier"]
+        linear_id = require_linear_identifier(issue["identifier"])
         path = root / status / filename_for(issue, wcp_id)
         replace_issue_file(root, path, render(issue, wcp_id, status, reason), linear_id)
         written += 1

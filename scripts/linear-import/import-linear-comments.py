@@ -23,25 +23,10 @@ from wcp_paths import (
 
 API = "https://api.linear.app/graphql"
 COMMENTS_BATCH_SIZE = 50
-COMMENTS_BATCH_QUERY = """
-query($ids: [String!]!, $cursor: String) {
-  issues(
-    first: 50
-    after: $cursor
-    includeArchived: true
-    filter: { identifier: { in: $ids } }
-  ) {
-    pageInfo { hasNextPage endCursor }
-    nodes {
-      identifier
-      comments(first: 50) {
-        pageInfo { hasNextPage }
-        nodes { body createdAt user { name } }
-      }
-    }
-  }
-}
-"""
+ISSUE_COMMENTS_SELECTION = (
+    "identifier comments(first: 50) { pageInfo { hasNextPage } "
+    "nodes { body createdAt user { name } } }"
+)
 
 
 def load_token(config_path: Path, server: str) -> str:
@@ -66,10 +51,50 @@ def load_token(config_path: Path, server: str) -> str:
     return raw
 
 
-def comments_batch_payload(ids: list[str], cursor: str | None = None) -> dict:
+def parse_team_keys(raw: str) -> list[str]:
+    teams: list[str] = []
+    for part in raw.split(","):
+        key = part.strip()
+        if key and key not in teams:
+            teams.append(key)
+    if not teams:
+        raise ValueError("Pass at least one Linear team key via --teams")
+    return teams
+
+
+def team_key_of(identifier: str) -> str:
+    return require_linear_identifier(identifier).rsplit("-", 1)[0]
+
+
+def ids_on_teams(ids: list[str], teams: list[str]) -> list[str]:
+    if not teams:
+        raise ValueError("Pass at least one Linear team key via --teams")
+    allowed = set(teams)
+    kept: list[str] = []
+    seen: set[str] = set()
+    for ident in ids:
+        cleaned = require_linear_identifier(ident)
+        if cleaned in seen:
+            continue
+        if team_key_of(cleaned) not in allowed:
+            continue
+        seen.add(cleaned)
+        kept.append(cleaned)
+    return kept
+
+
+def comments_batch_payload(ids: list[str]) -> dict:
+    cleaned = [require_linear_identifier(ident) for ident in ids]
+    if not cleaned:
+        raise ValueError("comment batch is empty")
+    var_defs = ", ".join(f"$id{i}: String!" for i in range(len(cleaned)))
+    aliases = " ".join(
+        f"i{i}: issue(id: $id{i}) {{ {ISSUE_COMMENTS_SELECTION} }}"
+        for i in range(len(cleaned))
+    )
     return {
-        "query": COMMENTS_BATCH_QUERY,
-        "variables": {"ids": list(ids), "cursor": cursor},
+        "query": f"query({var_defs}) {{ {aliases} }}",
+        "variables": {f"id{i}": ident for i, ident in enumerate(cleaned)},
     }
 
 
@@ -97,22 +122,26 @@ def graphql(token: str, payload: dict) -> dict:
     return body.get("data") or {}
 
 
-def fetch_comments_for_ids(token: str, ids: list[str]) -> dict[str, dict]:
+def comments_by_id_from_alias_data(data: dict, ids: list[str]) -> dict[str, dict]:
     found: dict[str, dict] = {}
-    cursor = None
-    while True:
-        page = (graphql(token, comments_batch_payload(ids, cursor)).get("issues") or {})
-        for node in page.get("nodes") or []:
-            ident = node.get("identifier")
-            if ident:
-                found[ident] = node["comments"]
-        page_info = page.get("pageInfo") or {}
-        if not page_info.get("hasNextPage"):
-            break
-        cursor = page_info.get("endCursor")
-        if not cursor:
-            break
-    missing = [ident for ident in ids if ident not in found]
+    for i, ident in enumerate(ids):
+        node = data.get(f"i{i}")
+        if not isinstance(node, dict):
+            continue
+        comments = node.get("comments")
+        if not isinstance(comments, dict):
+            continue
+        found[ident] = comments
+    return found
+
+
+def fetch_comments_for_ids(token: str, ids: list[str], teams: list[str]) -> dict[str, dict]:
+    kept = ids_on_teams(ids, teams)
+    if not kept:
+        return {}
+    data = graphql(token, comments_batch_payload(kept))
+    found = comments_by_id_from_alias_data(data, kept)
+    missing = [ident for ident in kept if ident not in found]
     if missing:
         raise RuntimeError("Linear comments missing for " + ", ".join(missing))
     return found
@@ -148,7 +177,10 @@ def identifier_from_issue(path: Path, text: str) -> str:
     return require_linear_identifier(ident)
 
 
-def collect_pending(root: Path, folders: list[str]) -> list[tuple[Path, str]]:
+def collect_pending(root: Path, folders: list[str], teams: list[str]) -> list[tuple[Path, str]]:
+    if not teams:
+        raise ValueError("Pass at least one Linear team key via --teams")
+    allowed = set(teams)
     pending: list[tuple[Path, str]] = []
     for folder in folders:
         for path in sorted((root / folder).glob("*.md")):
@@ -156,7 +188,10 @@ def collect_pending(root: Path, folders: list[str]) -> list[tuple[Path, str]]:
             text = resolved.read_text(encoding="utf-8")
             if "\n## Linear comments\n" in text:
                 continue
-            pending.append((resolved, identifier_from_issue(resolved, text)))
+            ident = identifier_from_issue(resolved, text)
+            if team_key_of(ident) not in allowed:
+                continue
+            pending.append((resolved, ident))
     return pending
 
 
@@ -170,17 +205,23 @@ def main() -> None:
         default=",".join(QUEUE_FOLDERS),
         help="Comma-separated queue folders. Only open, in-progress, in-review, done, canceled, blocked",
     )
+    parser.add_argument(
+        "--teams",
+        required=True,
+        help="Comma-separated Linear team keys. Identifiers whose prefix is not in this list are skipped",
+    )
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--dry-run", action="store_true", help="Count files that still need comments")
     args = parser.parse_args()
 
     try:
         folders = parse_queue_folders(args.folders)
+        teams = parse_team_keys(args.teams)
     except ValueError as exc:
         raise SystemExit(str(exc)) from None
     root = issues_root(args.repo)
     try:
-        pending = collect_pending(root, folders)
+        pending = collect_pending(root, folders, teams)
     except ValueError as exc:
         raise SystemExit(str(exc)) from None
     print(json.dumps({"pending": len(pending), "folders": folders}))
@@ -201,7 +242,7 @@ def main() -> None:
     comments_by_id: dict[str, dict] = {}
 
     def load_chunk(chunk: list[str]) -> dict[str, dict]:
-        return fetch_comments_for_ids(token, chunk)
+        return fetch_comments_for_ids(token, chunk, teams)
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         chunks = chunk_identifiers(unique_ids)

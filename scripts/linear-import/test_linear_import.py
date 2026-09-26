@@ -3,6 +3,9 @@
 
 # WCP prb-fix: scripts/linear-import/import-linear-to-wcp.py --force replaces stale linear_id files (fix linear-import)
 # WCP prb-fix: scripts/linear-import/import-linear-comments.py folder/id allowlist and batched comments query (fix linear-import)
+# WCP prb-fix: scripts/linear-import/import-linear-comments.py aliased issue(id:) batch, not IssueFilter.identifier (fix linear-import)
+# WCP prb-fix: scripts/linear-import/import-linear-comments.py --teams prefix filter skips planted HR-1 (fix linear-import)
+# WCP prb-fix: scripts/linear-import/import-linear-to-wcp.py require identifier and unlink symlink dest (fix linear-import)
 # WCP prb-fix: scripts/linear-import/apply-notion-ids.py resolve issues root like wcpDirName (fix linear-import)
 # WCP prb-fix: scripts/linear-import/build-notion-batches.py resolve issues root like wcpDirName (fix linear-import)
 # WCP prb-fix: scripts/linear-import/fix-wcp-acceptance.py resolve issues root like wcpDirName (fix linear-import)
@@ -147,6 +150,37 @@ class ForceReplaceTests(unittest.TestCase):
             self.assertTrue(dest.exists())
             self.assertIn("new", dest.read_text(encoding="utf-8"))
 
+    def test_filename_for_requires_linear_identifier(self) -> None:
+        name = self.importer.filename_for(
+            {"identifier": "SODA-7", "title": "Short title"}, "0007"
+        )
+        self.assertEqual(name, "0007-soda-7-short-title.md")
+        for bad in ("SODA-7/../../etc", "../SODA-7", "soda-7", "SODA-7\nENG-1"):
+            with self.assertRaises(ValueError):
+                self.importer.filename_for({"identifier": bad, "title": "x"}, "0007")
+
+    def test_symlink_dest_is_replaced_by_regular_file_inside_issues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            issues = root / ".wcp" / "issues"
+            dest = issues / "open" / "0007-soda-7-short-title.md"
+            dest.parent.mkdir(parents=True)
+            outside = root / "outside-target.md"
+            outside.write_text("keep me\n", encoding="utf-8")
+            dest.symlink_to(outside)
+            self.assertTrue(dest.is_symlink())
+            self.importer.replace_issue_file(
+                issues, dest, issue_md("SODA-7", extra=" imported"), "SODA-7"
+            )
+            self.assertTrue(dest.exists())
+            self.assertFalse(dest.is_symlink())
+            self.assertTrue(dest.is_file())
+            self.assertEqual(dest.resolve().parent, (issues / "open").resolve())
+            self.assertTrue(dest.resolve().is_relative_to(issues.resolve()))
+            self.assertIn("imported", dest.read_text(encoding="utf-8"))
+            self.assertEqual(outside.read_text(encoding="utf-8"), "keep me\n")
+            self.assertFalse(outside.is_symlink())
+
 
 class AllowlistTests(unittest.TestCase):
     def test_queue_folders_are_the_six_status_names(self) -> None:
@@ -222,16 +256,21 @@ class CommentBatchTests(unittest.TestCase):
         self.assertEqual(chunks[1], ids[50:])
         self.assertEqual(self.comments.COMMENTS_BATCH_SIZE, 50)
 
-    def test_batch_request_filters_identifiers_not_one_issue_id(self) -> None:
+    def test_batch_request_uses_aliased_issue_id_not_identifier_filter(self) -> None:
         ids = ["SODA-1", "SODA-2"]
         payload = self.comments.comments_batch_payload(ids)
         query = " ".join(payload["query"].split())
-        self.assertEqual(payload["variables"]["ids"], ids)
-        self.assertIn("identifier: { in: $ids }", query)
+        self.assertEqual(payload["variables"], {"id0": "SODA-1", "id1": "SODA-2"})
+        self.assertIn("query($id0: String!, $id1: String!)", query)
+        self.assertIn("i0: issue(id: $id0)", query)
+        self.assertIn("i1: issue(id: $id1)", query)
         self.assertIn("comments(first: 50)", query)
-        self.assertIn("includeArchived: true", query)
-        self.assertNotIn("issue(id: $id)", query)
-        self.assertNotIn("issue(id:", query)
+        self.assertIn("pageInfo { hasNextPage }", query)
+        self.assertIn("nodes { body createdAt user { name } }", query)
+        self.assertNotIn("identifier: { in", query)
+        self.assertNotIn("$ids", query)
+        self.assertNotIn("filter:", query)
+        self.assertNotIn("issues(", query)
         json.dumps(payload)
 
     def test_collect_pending_skips_files_that_already_have_comments(self) -> None:
@@ -246,9 +285,62 @@ class CommentBatchTests(unittest.TestCase):
                 issue_md("SODA-8", "0008") + "\n## Linear comments\n\n_No Linear comments._\n",
                 encoding="utf-8",
             )
-            found = self.comments.collect_pending(root, ["open"])
+            found = self.comments.collect_pending(root, ["open"], ["SODA"])
             self.assertEqual([item[1] for item in found], ["SODA-7"])
             self.assertEqual(found[0][0].resolve(), pending.resolve())
+
+    def test_parse_team_keys_requires_at_least_one(self) -> None:
+        self.assertEqual(self.comments.parse_team_keys("SODA"), ["SODA"])
+        self.assertEqual(self.comments.parse_team_keys("SODA,TW"), ["SODA", "TW"])
+        for raw in ("", " , ,"):
+            with self.assertRaises(ValueError):
+                self.comments.parse_team_keys(raw)
+
+    def test_collect_pending_skips_planted_hr_when_teams_soda(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / ".wcp" / "issues"
+            open_dir = root / "open"
+            open_dir.mkdir(parents=True)
+            soda = open_dir / "0007-soda-7.md"
+            planted = open_dir / "0001-hr-1.md"
+            soda.write_text(issue_md("SODA-7"), encoding="utf-8")
+            planted.write_text(issue_md("HR-1", "0001"), encoding="utf-8")
+            found = self.comments.collect_pending(root, ["open"], ["SODA"])
+            self.assertEqual([item[1] for item in found], ["SODA-7"])
+            payload = self.comments.comments_batch_payload([item[1] for item in found])
+            self.assertEqual(list(payload["variables"].values()), ["SODA-7"])
+            self.assertNotIn("HR-1", payload["variables"].values())
+            self.assertNotIn("HR-1", payload["query"])
+
+    def test_fetch_comments_does_not_request_planted_hr_id(self) -> None:
+        calls: list[dict] = []
+
+        def fake_graphql(_token: str, payload: dict) -> dict:
+            calls.append(payload)
+            return {
+                "i0": {
+                    "identifier": "SODA-7",
+                    "comments": {"pageInfo": {"hasNextPage": False}, "nodes": []},
+                }
+            }
+
+        original = self.comments.graphql
+        self.comments.graphql = fake_graphql
+        try:
+            found = self.comments.fetch_comments_for_ids(
+                "token", ["SODA-7", "HR-1"], ["SODA"]
+            )
+        finally:
+            self.comments.graphql = original
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["variables"], {"id0": "SODA-7"})
+        query = " ".join(calls[0]["query"].split())
+        self.assertIn("i0: issue(id: $id0)", query)
+        self.assertNotIn("HR-1", calls[0]["variables"].values())
+        self.assertNotIn("HR-1", query)
+        self.assertNotIn("identifier: { in", query)
+        self.assertIn("SODA-7", found)
+        self.assertNotIn("HR-1", found)
 
 
 if __name__ == "__main__":
