@@ -515,19 +515,21 @@ def ensure_front_field(front: str, key: str, block: str) -> str:
 
 
 def comments_section(text: str) -> str:
-    """The fetched comment block the importer appends, not a heading inside a comment."""
+    """The comment block the importer appended, not a heading inside the description."""
     parts = text.split("---", 2)
     body = parts[2] if len(parts) >= 3 else ""
-    structured = re.search(
-        r"(?m)^## Linear comments\n\n(?:_No Linear comments\._|### )",
-        body,
+    # The importer writes "### Name — ISO-time" or the empty-comment line.
+    # A description heading followed by an ordinary "### Title" is not that block.
+    # Use the last importer-shaped block so an earlier description copy is left behind.
+    matches = list(
+        re.finditer(
+            r"(?m)^## Linear comments\n\n(?:_No Linear comments\._|### .+ — \d{4}-\d{2}-\d{2})",
+            body,
+        )
     )
-    if structured:
-        return body[structured.start() :].strip() + "\n"
-    plain = re.search(r"(?m)^## Linear comments\s*$", body)
-    if not plain:
+    if not matches:
         return ""
-    return body[plain.start() :].strip() + "\n"
+    return body[matches[-1].start() :].strip() + "\n"
 
 
 def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
