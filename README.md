@@ -76,8 +76,9 @@ wcp look --json
 # write the test first. do not claim it.
 # // WCP auth-1: src/auth/session.ts refresh cookie rotates on session mint (arch)
 wcp acquire --path src/auth/session.ts --test src/auth/session.test.ts --doing "rotate refresh cookie" --scope rotateRefreshToken
+wcp reup
 wcp write-ok --path src/auth/session.ts
-# edit, flush
+# research in the file, edit, flush. reup between hunks. no write required.
 wcp release
 ```
 
@@ -95,12 +96,12 @@ MCP (stdio):
 
 ## What V1 is
 
-- Exclusive **file** leases for files that existed at `wcp init`, one path per agent, 60s burst TTL
+- Exclusive **file** seats for files that existed at `wcp init`, one path per agent. The seat covers research between hunks. Takeover is 5 minutes with no write and no heartbeat, or a dead pid
 - Tests written before the claim, and never claimed. New files written with no claim
 - Drift via sha256 at acquire (`write-ok` fails if the file moved)
 - `overtake` inherits `doing`/`scope` on idle leases
 - L2: `write-ok` + hooks (no board or sqlite commits; `.wcp/issues/` is committed; `WCP_AGENT` cannot push)
-- Committed queue: `.wcp/issues/{open,in-progress,in-review,done,canceled,blocked}/`. Ticket lease is 10 minutes. A solver moves finished work to `in-review/`. One reviewer per issue checks it, fixes it, and sets `done`. Cancel and block each write `reason` and stay searchable. File lease stays the floor TTL. `RUN.md` stays occupancy and `arch`
+- Committed queue: `.wcp/issues/{open,in-progress,in-review,done,canceled,blocked}/`. Hot folders stay flat. `done/` and `canceled/` file new issues under the UTC day in `created`. Ticket lease is 10 minutes. The issue file is the record. Notion is a later copy. A solver moves finished work to `in-review/`. One reviewer per issue checks it, fixes it, and sets `done`. Cancel and block each write `reason` and stay searchable. File lease stays the floor TTL. `RUN.md` stays occupancy and `arch`
 - Operating point: about 8–20 writers on disjoint files, not 100
 
 Not in V1: honor-mode markdown as the store, multi-path `also` bursts, harness wrapping of editor write tools, a hosted referee.

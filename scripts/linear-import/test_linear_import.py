@@ -30,6 +30,8 @@ from wcp_paths import (
     QUEUE_FOLDERS,
     WCP_DIR_NAME,
     is_linear_identifier,
+    issue_dir,
+    issue_filename,
     issues_root,
     parse_linear_id,
     parse_queue_folders,
@@ -159,9 +161,14 @@ class ForceReplaceTests(unittest.TestCase):
 
     def test_filename_for_requires_linear_identifier(self) -> None:
         name = self.importer.filename_for(
-            {"identifier": "SODA-7", "title": "Short title"}, "0007"
+            {
+                "identifier": "SODA-7",
+                "title": "Short title",
+                "createdAt": "2026-09-01T00:00:00Z",
+            },
+            "0007",
         )
-        self.assertEqual(name, "0007-soda-7-short-title.md")
+        self.assertEqual(name, "20260901T0000Z-0007-soda-7-short-title.md")
         for bad in ("SODA-7/../../etc", "../SODA-7", "soda-7", "SODA-7\nENG-1"):
             with self.assertRaises(ValueError):
                 self.importer.filename_for({"identifier": bad, "title": "x"}, "0007")
@@ -1280,6 +1287,21 @@ class CodexFollowupTests(unittest.TestCase):
         )
         self.assertIn("### < !-- wcp:linear-comments --> — 2026-09-01T00:00:00Z", named)
         self.assertEqual(named.count("<!-- wcp:linear-comments -->"), 1)
+
+    def test_issue_dir_keeps_hot_folders_flat_and_archives_by_filing_day(self) -> None:
+        created = "2026-10-01T12:02:00Z"
+        name = issue_filename(created, "0123", "rotate-refresh-token")
+        self.assertEqual(name, "20261001T1202Z-0123-rotate-refresh-token.md")
+        self.assertEqual(issue_dir("open", created), Path("open"))
+        self.assertEqual(issue_dir("in-review", created), Path("in-review"))
+        self.assertEqual(
+            issue_dir("done", created),
+            Path("done") / "2026" / "10" / "01",
+        )
+        self.assertEqual(
+            issue_dir("canceled", created),
+            Path("canceled") / "2026" / "10" / "01",
+        )
 
     def test_issues_root_rejects_a_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

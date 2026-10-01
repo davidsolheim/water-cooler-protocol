@@ -221,7 +221,7 @@ def collect_pending(
     allowed = set(teams)
     pending: list[tuple[Path, str]] = []
     for folder in folders:
-        for path in sorted((root / folder).glob("*.md")):
+        for path in sorted((root / folder).rglob("*.md")):
             try:
                 resolved = resolve_under_issues(root, path)
                 text = resolved.read_text(encoding="utf-8")

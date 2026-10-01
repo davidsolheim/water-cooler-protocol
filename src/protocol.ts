@@ -4,7 +4,8 @@ import { isAbsolute, join, normalize, relative, sep } from "node:path";
 
 export const MISSING_SHA = "MISSING";
 export const AGENT_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
-export const DEFAULT_TTL_SEC = 60;
+/** File-seat takeover window. A quiet seat is protected this long, not hidden this long. */
+export const DEFAULT_TTL_SEC = 300;
 
 export function isoNow(d: Date = new Date()): string {
   return d.toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -59,6 +60,19 @@ export function sha256File(absPath: string): string {
   const hash = createHash("sha256");
   hash.update(readFileSync(absPath));
   return hash.digest("hex");
+}
+
+/** Mtime of one file as ISO-8601 UTC. Stats the path. Does not read or hash it. */
+export function fileMtimeIso(absPath: string): string | null {
+  try {
+    const st = statSync(absPath);
+    if (!st.isFile()) {
+      return null;
+    }
+    return isoNow(st.mtime);
+  } catch {
+    return null;
+  }
 }
 
 export function pidAlive(pid: number): boolean {

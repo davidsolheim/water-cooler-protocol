@@ -1,5 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+// WCP file-seat: src/protocol.ts default file TTL is 300 seconds and last-write mtime is not a hash (file seat)
+// WCP file-seat: src/db.ts live row stores last_write_at (file seat)
+// WCP file-seat: src/rpc.ts heartbeat extends a seat and takeover needs write plus heartbeat (file seat)
+// WCP file-seat: src/render.ts RUN.md shows age since last write (file seat)
+// WCP file-seat: src/cli.ts default ttl help is 300 seconds (file seat)
+// WCP file-seat: src/mcp.ts reup is a heartbeat during research (file seat)
+// WCP file-seat: PROTOCOL.md file takeover is 5 minutes and ticket reclaim stays 10 (file seat)
+// WCP file-seat: README.md a seat is not a 60-second flush (file seat)
+// WCP file-seat: VISION.md a seat covers research between hunks (file seat)
+// WCP file-seat: skill/water-cooler-protocol/SKILL.md heartbeat while researching in the file (file seat)
+// WCP file-seat: skill/AGENTS.snippet.md look is the observer view (file seat)
+// WCP file-seat: skill/water-cooler-protocol/references/playbook.md takeover window (file seat)
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { openDb } from "../src/db.ts";
@@ -107,6 +119,10 @@ function fixture() {
     write: (rel: string, body: string) => {
       writeFileSync(join(repoRoot, ...rel.split("/")), body);
     },
+    touch: (rel: string, iso: string) => {
+      const when = new Date(iso);
+      utimesSync(join(repoRoot, ...rel.split("/")), when, when);
+    },
   };
 }
 
@@ -127,7 +143,7 @@ describe("start and look", () => {
     if (look.ok) {
       expect(look.arch).toBe("rotate refresh tokens");
       expect(look.branch).toBe("dev");
-      expect(look.ttl_sec).toBe(60);
+      expect(look.ttl_sec).toBe(300);
       expect(look.live).toEqual([]);
     }
   });
@@ -246,10 +262,11 @@ describe("ttl and overtake", () => {
   });
 
   test("overtake on expired lease inherits doing and sets from_agent", () => {
-    const { call, lease, prove, setNow } = fixture();
+    const { call, lease, prove, setNow, touch } = fixture();
     call("start", { arch: "demo" });
     lease("auth-1", "src/a.ts", "rotate cookie", { scope: "rotateRefreshToken" });
-    setNow("2026-09-18T19:52:00Z");
+    touch("src/a.ts", "2026-09-18T19:51:00Z");
+    setNow("2026-09-18T19:56:00Z");
     const look = call("look");
     expect(look.ok).toBe(true);
     if (look.ok) {
@@ -289,10 +306,11 @@ describe("ttl and overtake", () => {
   });
 
   test("reap drops expired rows so the agent id can acquire again", () => {
-    const { call, lease, setNow } = fixture();
+    const { call, lease, setNow, touch } = fixture();
     call("start", { arch: "demo" });
     lease("auth-1", "src/a.ts", "a");
-    setNow("2026-09-18T19:52:00Z");
+    touch("src/a.ts", "2026-09-18T19:51:00Z");
+    setNow("2026-09-18T19:56:00Z");
     const reaped = call("reap");
     expect(reaped.ok).toBe(true);
     if (reaped.ok) expect(reaped.released).toBe(1);
@@ -301,10 +319,11 @@ describe("ttl and overtake", () => {
   });
 
   test("acquire on an expired foreign path is still conflict so overtake can inherit", () => {
-    const { call, lease, prove, setNow } = fixture();
+    const { call, lease, prove, setNow, touch } = fixture();
     call("start", { arch: "demo" });
     lease("auth-1", "src/a.ts", "rotate cookie");
-    setNow("2026-09-18T19:52:00Z");
+    touch("src/a.ts", "2026-09-18T19:51:00Z");
+    setNow("2026-09-18T19:56:00Z");
     const b = call("acquire", {
       agent: "ui-2",
       path: "src/a.ts",
@@ -353,7 +372,7 @@ describe("drift and write_ok", () => {
     const { call, lease, setNow } = fixture();
     call("start", { arch: "demo" });
     lease("auth-1", "src/a.ts", "a");
-    setNow("2026-09-18T19:52:00Z");
+    setNow("2026-09-18T19:56:00Z");
     const ok = call("write_ok", { agent: "auth-1", path: "src/a.ts" });
     expect(ok.ok).toBe(false);
     if (!ok.ok) expect(ok.error).toBe("expired");
@@ -496,6 +515,193 @@ describe("reup", () => {
     lease("auth-1", "src/a.ts", "a");
     const r = call("reup", { agent: "auth-1" });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.row?.expires_at).toBe("2026-09-18T19:52:00Z");
+    if (r.ok) expect(r.row?.expires_at).toBe("2026-09-18T19:56:00Z");
+  });
+});
+
+describe("file seat", () => {
+  test("overtake is refused at 4 minutes", () => {
+    const { call, lease, prove, setNow, touch } = fixture();
+    call("start", { arch: "demo" });
+    lease("auth-1", "src/a.ts", "research the parser", { scope: "parse" });
+    touch("src/a.ts", "2026-09-18T19:51:00Z");
+    setNow("2026-09-18T19:55:00Z");
+    const look = call("look");
+    expect(look.ok).toBe(true);
+    if (look.ok) {
+      expect(look.live).toHaveLength(1);
+      expect(look.live[0]?.expired).toBe(false);
+      expect(look.live[0]?.last_write_at).toBe("2026-09-18T19:51:00Z");
+    }
+    const o = call("overtake", {
+      agent: "ui-2",
+      path: "src/a.ts",
+      test: prove("ui-2", "src/a.ts"),
+    });
+    expect(o.ok).toBe(false);
+    if (!o.ok) expect(o.error).toBe("not_idle");
+  });
+
+  test("a recent write keeps the seat after the heartbeat expires", () => {
+    const { call, lease, prove, setNow, touch } = fixture();
+    call("start", { arch: "demo" });
+    lease("auth-1", "src/a.ts", "research the parser");
+    touch("src/a.ts", "2026-09-18T19:55:00Z");
+    setNow("2026-09-18T19:56:00Z");
+    const ok = call("write_ok", { agent: "auth-1", path: "src/a.ts" });
+    expect(ok.ok).toBe(false);
+    if (!ok.ok) expect(ok.error).toBe("expired");
+    const o = call("overtake", {
+      agent: "ui-2",
+      path: "src/a.ts",
+      test: prove("ui-2", "src/a.ts"),
+    });
+    expect(o.ok).toBe(false);
+    if (!o.ok) expect(o.error).toBe("not_idle");
+  });
+
+  test("overtake is allowed at 5 minutes of no write and no heartbeat", () => {
+    const { call, lease, prove, setNow, touch } = fixture();
+    call("start", { arch: "demo" });
+    lease("auth-1", "src/a.ts", "research the parser", { scope: "parse" });
+    touch("src/a.ts", "2026-09-18T19:51:00Z");
+    setNow("2026-09-18T19:56:00Z");
+    const look = call("look");
+    expect(look.ok).toBe(true);
+    if (look.ok) {
+      expect(look.live).toHaveLength(1);
+      expect(look.live[0]?.expired).toBe(true);
+      expect(look.live[0]?.agent_id).toBe("auth-1");
+    }
+    const o = call("overtake", {
+      agent: "ui-2",
+      path: "src/a.ts",
+      test: prove("ui-2", "src/a.ts"),
+    });
+    expect(o.ok).toBe(true);
+    if (o.ok) {
+      expect(o.row?.from_agent).toBe("auth-1");
+      expect(o.row?.doing).toBe("research the parser");
+      expect(o.row?.scope).toBe("parse");
+    }
+  });
+
+  test("reup heartbeats a seat with no write and holds it until takeover", () => {
+    const { call, lease, prove, setNow, touch, repoRoot } = fixture();
+    call("start", { arch: "demo" });
+    lease("auth-1", "src/a.ts", "research the parser", { scope: "parse" });
+    touch("src/a.ts", "2026-09-18T19:51:00Z");
+    const before = readFileSync(join(repoRoot, "src", "a.ts"), "utf8");
+    setNow("2026-09-18T19:55:00Z");
+    const beat = call("reup", { agent: "auth-1" });
+    expect(beat.ok).toBe(true);
+    if (beat.ok) {
+      expect(beat.row?.expires_at).toBe("2026-09-18T20:00:00Z");
+      expect(beat.row?.last_write_at).toBe("2026-09-18T19:51:00Z");
+    }
+    expect(readFileSync(join(repoRoot, "src", "a.ts"), "utf8")).toBe(before);
+    setNow("2026-09-18T19:56:00Z");
+    const early = call("overtake", {
+      agent: "ui-2",
+      path: "src/a.ts",
+      test: prove("ui-2", "src/a.ts"),
+    });
+    expect(early.ok).toBe(false);
+    if (!early.ok) expect(early.error).toBe("not_idle");
+    setNow("2026-09-18T20:00:00Z");
+    const quiet = call("reup", { agent: "auth-1" });
+    expect(quiet.ok).toBe(true);
+    if (quiet.ok) expect(quiet.row?.expires_at).toBe("2026-09-18T20:05:00Z");
+    const still = call("overtake", {
+      agent: "ui-2",
+      path: "src/a.ts",
+      test: prove("ui-2", "src/a.ts"),
+    });
+    expect(still.ok).toBe(false);
+    if (!still.ok) expect(still.error).toBe("not_idle");
+    setNow("2026-09-18T20:05:00Z");
+    const look = call("look");
+    if (look.ok) {
+      expect(look.live).toHaveLength(1);
+      expect(look.live[0]?.expired).toBe(true);
+    }
+    const taken = call("overtake", {
+      agent: "ui-2",
+      path: "src/a.ts",
+      test: prove("ui-2", "src/a.ts"),
+    });
+    expect(taken.ok).toBe(true);
+    if (taken.ok) {
+      expect(taken.row?.from_agent).toBe("auth-1");
+      expect(taken.row?.doing).toBe("research the parser");
+      expect(taken.row?.scope).toBe("parse");
+    }
+  });
+
+  test("a dead pid is takeable immediately", () => {
+    const { call, lease, prove, killPid, touch } = fixture();
+    call("start", { arch: "demo" });
+    lease("auth-1", "src/a.ts", "research the parser", { scope: "parse" });
+    touch("src/a.ts", "2026-09-18T19:51:00Z");
+    killPid(1001);
+    const look = call("look");
+    if (look.ok) {
+      expect(look.live).toHaveLength(1);
+      expect(look.live[0]?.expired).toBe(true);
+    }
+    const blocked = call("write_ok", { agent: "auth-1", path: "src/a.ts" });
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.error).toBe("expired");
+    const o = call("overtake", {
+      agent: "ui-2",
+      path: "src/a.ts",
+      test: prove("ui-2", "src/a.ts"),
+    });
+    expect(o.ok).toBe(true);
+    if (o.ok) {
+      expect(o.row?.from_agent).toBe("auth-1");
+      expect(o.row?.doing).toBe("research the parser");
+      expect(o.row?.scope).toBe("parse");
+    }
+  });
+
+  test("look returns last_write_at without hashing the tree", () => {
+    const fx = fixture();
+    for (let i = 0; i < 12; i++) {
+      fx.write(`src/extra-${i}.ts`, `export const n = ${i}\n`);
+    }
+    let listed = 0;
+    const origList = fx.ctx.listExisted;
+    fx.ctx.listExisted = () => {
+      listed += 1;
+      return origList();
+    };
+    const hashed: string[] = [];
+    const origSha = fx.ctx.sha256;
+    fx.ctx.sha256 = (boardPath) => {
+      hashed.push(boardPath);
+      return origSha(boardPath);
+    };
+    fx.call("start", { arch: "demo" });
+    const listedAtStart = listed;
+    fx.lease("auth-1", "src/a.ts", "research the parser", { scope: "parse" });
+    fx.touch("src/a.ts", "2026-09-18T19:51:00Z");
+    hashed.length = 0;
+    const look = fx.call("look");
+    expect(listed).toBe(listedAtStart);
+    expect(hashed).toEqual(["src/a.ts"]);
+    expect(look.ok).toBe(true);
+    if (look.ok) {
+      const live = look.live?.[0];
+      expect(live?.path).toBe("src/a.ts");
+      expect(live?.agent_id).toBe("auth-1");
+      expect(live?.doing).toBe("research the parser");
+      expect(live?.scope).toBe("parse");
+      expect(live?.from_agent).toBeNull();
+      expect(live?.pid).toBe(1001);
+      expect(live?.leased_at).toBe("2026-09-18T19:51:00Z");
+      expect(live?.expires_at).toBe("2026-09-18T19:56:00Z");
+      expect(live?.last_write_at).toBe("2026-09-18T19:51:00Z");
+    }
   });
 });

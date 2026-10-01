@@ -20,9 +20,9 @@ import type { RpcMethod, RpcRequest, RpcResponse } from "./rpc.ts";
 const USAGE = `Water Cooler Protocol (wcp)
 
 Usage:
-  wcp init --arch <text> [--branch dev] [--ttl-sec 60]
+  wcp init --arch <text> [--branch dev] [--ttl-sec 300]
   wcp doctor
-  wcp start --arch <text> [--branch dev] [--ttl-sec 60] [--force]
+  wcp start --arch <text> [--branch dev] [--ttl-sec 300] [--force]
   wcp look [--json]
   wcp status
   wcp name <id>

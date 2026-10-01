@@ -5,6 +5,7 @@ import {
   DEFAULT_TTL_SEC,
   absFromBoard,
   addSecondsIso,
+  fileMtimeIso,
   isExpired,
   isTestPath,
   normalizeBoardPath,
@@ -25,6 +26,7 @@ export type LiveRow = {
   sha256: string;
   pid: number | null;
   test_path: string;
+  last_write_at: string | null;
   drift: boolean;
   expired: boolean;
 };
@@ -129,6 +131,7 @@ type LiveDb = {
   sha256: string;
   pid: number | null;
   test_path: string;
+  last_write_at: string | null;
 };
 
 function str(params: Record<string, unknown> | undefined, key: string): string | undefined {
@@ -200,20 +203,48 @@ function requireRun(ctx: RpcCtx, id: string): RunRow | RpcErr {
   return run;
 }
 
+function lastWriteAt(row: LiveDb, ctx: RpcCtx): string | null {
+  return fileMtimeIso(absFromBoard(ctx.repoRoot, row.path)) ?? row.last_write_at ?? null;
+}
+
+function writeQuiet(row: LiveDb, ctx: RpcCtx, now: string, ttlSec: number): boolean {
+  const last = lastWriteAt(row, ctx);
+  if (!last) {
+    return true;
+  }
+  const ageMs = Date.parse(now) - Date.parse(last);
+  if (Number.isNaN(ageMs)) {
+    return true;
+  }
+  return ageMs >= ttlSec * 1000;
+}
+
+function pidDead(row: LiveDb, ctx: RpcCtx): boolean {
+  return row.pid != null && !ctx.pidAlive(row.pid);
+}
+
+/** Takeover: dead pid, or no heartbeat and no write for the whole window. */
 function isIdle(row: LiveDb, ctx: RpcCtx, now: string): boolean {
-  if (isExpired(row.expires_at, now)) {
+  if (pidDead(row, ctx)) {
     return true;
   }
-  if (row.pid != null && !ctx.pidAlive(row.pid)) {
-    return true;
+  if (!isExpired(row.expires_at, now)) {
+    return false;
   }
-  return false;
+  const ttl = getRun(ctx.db)?.ttl_sec ?? DEFAULT_TTL_SEC;
+  return writeQuiet(row, ctx, now, ttl);
+}
+
+/** write_ok fails on a dead pid or a missed heartbeat. A recent write does not replace reup. */
+function seatBlocksWrite(row: LiveDb, ctx: RpcCtx, now: string): boolean {
+  return pidDead(row, ctx) || isExpired(row.expires_at, now);
 }
 
 function decorate(row: LiveDb, ctx: RpcCtx, now: string): LiveRow {
   const disk = ctx.sha256(row.path);
   return {
     ...row,
+    last_write_at: lastWriteAt(row, ctx),
     from_agent: row.from_agent ?? null,
     pid: row.pid ?? null,
     drift: disk !== row.sha256,
@@ -253,10 +284,11 @@ function insertLive(
   const leased_at = now;
   const expires_at = addSecondsIso(now, run.ttl_sec);
   const sha256 = ctx.sha256(row.path);
+  const last_write_at = fileMtimeIso(absFromBoard(ctx.repoRoot, row.path));
   ctx.db
     .query(
-      `INSERT INTO live (agent_id, path, doing, scope, from_agent, leased_at, expires_at, sha256, pid, test_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO live (agent_id, path, doing, scope, from_agent, leased_at, expires_at, sha256, pid, test_path, last_write_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.agent_id,
@@ -269,6 +301,7 @@ function insertLive(
       sha256,
       row.pid,
       row.test_path,
+      last_write_at,
     );
   return decorate(
     {
@@ -276,6 +309,7 @@ function insertLive(
       leased_at,
       expires_at,
       sha256,
+      last_write_at,
     },
     ctx,
     now,
@@ -565,9 +599,6 @@ function handleReup(ctx: RpcCtx, req: RpcRequest): RpcResponse {
   if (!mine) {
     return err(req.id, "no_lease", "agent holds no lease");
   }
-  if (isIdle(mine, ctx, now)) {
-    return err(req.id, "expired", "lease expired; acquire again", decorate(mine, ctx, now));
-  }
   const expires_at = addSecondsIso(now, run.ttl_sec);
   ctx.db.query("UPDATE live SET expires_at = ? WHERE agent_id = ?").run(expires_at, agent);
   const updated = rowByAgent(ctx.db, agent);
@@ -602,7 +633,12 @@ function handleOvertake(ctx: RpcCtx, req: RpcRequest): RpcResponse {
     return err(req.id, "no_lease", "no lease on path");
   }
   if (!isIdle(onPath, ctx, now)) {
-    return err(req.id, "not_idle", "lease is still live", decorate(onPath, ctx, now));
+    return err(
+      req.id,
+      "not_idle",
+      "seat is inside the write-and-heartbeat window",
+      decorate(onPath, ctx, now),
+    );
   }
   const proof = requireTestProof(ctx, req.id, agent, path, run, str(req.params, "test"));
   if (typeof proof !== "string") {
@@ -665,7 +701,7 @@ function handleWriteOk(ctx: RpcCtx, req: RpcRequest): RpcResponse {
   if (mine.path !== path) {
     return err(req.id, "wrong_path", `lease is on ${mine.path}`, decorate(mine, ctx, now));
   }
-  if (isIdle(mine, ctx, now)) {
+  if (seatBlocksWrite(mine, ctx, now)) {
     return err(req.id, "expired", "lease expired", decorate(mine, ctx, now));
   }
   const disk = ctx.sha256(path);

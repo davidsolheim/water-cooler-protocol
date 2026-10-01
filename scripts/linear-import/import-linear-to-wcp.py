@@ -23,6 +23,8 @@ from wcp_paths import (
     QUEUE_FOLDERS as FOLDERS,
     front_value,
     frontmatter_block,
+    issue_dir,
+    issue_filename,
     issues_root,
     parse_linear_id,
     require_linear_identifier,
@@ -227,6 +229,8 @@ def render(issue: dict, wcp_id: str, status: str, reason: str) -> str:
         "commit:",
         f"reason: {yml(reason) if reason else ''}".rstrip(),
         f"created: {yml(issue.get('createdAt') or '')}",
+        "session:",
+        "pr:",
         f"linear_id: {yml(issue['identifier'])}",
         f"linear_url: {yml(issue.get('url') or '')}",
         f"linear_status: {yml(state.get('name') or '')}",
@@ -422,7 +426,9 @@ def fetch_all(token: str, teams: list[str]) -> list[dict]:
 
 def filename_for(issue: dict, wcp_id: str) -> str:
     ident = require_linear_identifier(issue["identifier"])
-    return f"{wcp_id}-{ident.lower()}-{slug(issue.get('title') or '')}.md"
+    created = str(issue.get("createdAt") or "")
+    tail = f"{ident.lower()}-{slug(issue.get('title') or '')}"
+    return issue_filename(created, wcp_id, tail)
 
 
 def carry_notion(body: str, issues: Path, linear_id: str) -> str:
@@ -450,6 +456,8 @@ WCP_OWNED_FIELDS = (
     "lease_expires",
     "files",
     "commit",
+    "pr",
+    "session",
     "reason",
     "acceptance",
     "scope",
@@ -879,7 +887,8 @@ def main() -> None:
     written = 0
     for issue, wcp_id, linear_id in planned:
         status, body = refreshed_issue(issue, wcp_id, root, linear_id)
-        path = root / status / filename_for(issue, wcp_id)
+        created = str(issue.get("createdAt") or "")
+        path = root / issue_dir(status, created) / filename_for(issue, wcp_id)
         replace_issue_file(root, path, body, linear_id)
         written += 1
     print(json.dumps({"written": written, "root": str(root)}))

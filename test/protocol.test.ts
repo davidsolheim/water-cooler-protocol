@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  DEFAULT_TTL_SEC,
   MISSING_SHA,
   addSecondsIso,
+  fileMtimeIso,
   isExpired,
   isTestPath,
   isoNow,
@@ -91,6 +93,36 @@ describe("ttl", () => {
     expect(isExpired(expires, "2026-09-18T19:51:59Z")).toBe(false);
     expect(isExpired(expires, "2026-09-18T19:52:00Z")).toBe(true);
     expect(isExpired(expires, "2026-09-18T19:52:01Z")).toBe(true);
+  });
+
+  test("the default file seat is 5 minutes and the ticket clock stays 10", () => {
+    expect(DEFAULT_TTL_SEC).toBe(300);
+    const protocol = readFileSync(new URL("../PROTOCOL.md", import.meta.url), "utf8");
+    const skill = readFileSync(new URL("../skill/water-cooler-protocol/SKILL.md", import.meta.url), "utf8");
+    for (const text of [protocol, skill]) {
+      expect(text).toContain("300 seconds");
+      expect(text).toContain("10 minutes");
+      expect(text).not.toContain("60 seconds");
+      expect(text).not.toContain("TTL 60");
+    }
+    expect(protocol).toContain("lease_expires");
+    expect(protocol).not.toContain("almost empty");
+  });
+});
+
+describe("last write", () => {
+  test("fileMtimeIso reports mtime and does not hash the file", () => {
+    const root = tempDir();
+    const path = join(root, "a.ts");
+    writeFileSync(path, "alpha");
+    const when = new Date("2026-09-18T19:51:00Z");
+    utimesSync(path, when, when);
+    expect(fileMtimeIso(path)).toBe("2026-09-18T19:51:00Z");
+    writeFileSync(path, "beta-different-bytes");
+    utimesSync(path, when, when);
+    expect(fileMtimeIso(path)).toBe("2026-09-18T19:51:00Z");
+    expect(fileMtimeIso(path)).not.toBe(sha256File(path));
+    expect(fileMtimeIso(join(root, "missing.ts"))).toBeNull();
   });
 });
 

@@ -11,7 +11,7 @@ Home: [watercoolerprotocol.com](https://watercoolerprotocol.com)
 Local referee for 8–20 coding agents on one dirty working tree:
 
 - `wcpd` + SQLite stay gitignored under `.wcp/`; the work queue in `.wcp/issues/` is committed
-- Burst TTL leases (default 60s), one path per agent, one agent per path
+- File seats (default 5 minutes), one path per agent, one agent per path. The seat covers research between hunks. `look` shows who is there without waiting for takeover
 - Claims only for files that existed when the run started. Tests are written first and are not claimed. New files are written directly.
 - Drift via sha256 at acquire
 - CLI + MCP

@@ -56,7 +56,8 @@ const TOOLS = [
   },
   {
     name: "wcp_reup",
-    description: "Extend expires_at while still flushing this burst. Do not hold through tests.",
+    description:
+      "Heartbeat. Refreshes expires_at by the takeover window while you are in the file, including research between hunks. No write required. Release when you leave. Do not hold through tests or across files.",
     inputSchema: {
       type: "object",
       properties: { agent: { type: "string" } },
@@ -65,7 +66,7 @@ const TOOLS = [
   {
     name: "wcp_overtake",
     description:
-      "Take an idle lease on a pre-existing file to finish that work. Requires your own test naming the path.",
+      "Take a source-file seat when it has had no write and no heartbeat for the takeover window, or the recorded pid is dead. Finish that work. Do not revert hunks. Requires your own test naming the path.",
     inputSchema: {
       type: "object",
       properties: {

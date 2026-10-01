@@ -22,7 +22,7 @@ export function migrate(db: Database): void {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       branch TEXT NOT NULL DEFAULT 'dev',
       arch TEXT NOT NULL DEFAULT '',
-      ttl_sec INTEGER NOT NULL DEFAULT 60,
+      ttl_sec INTEGER NOT NULL DEFAULT 300,
       created_at TEXT NOT NULL,
       snap_at TEXT
     );
@@ -37,7 +37,8 @@ export function migrate(db: Database): void {
       expires_at TEXT NOT NULL,
       sha256 TEXT NOT NULL,
       pid INTEGER,
-      test_path TEXT NOT NULL DEFAULT ''
+      test_path TEXT NOT NULL DEFAULT '',
+      last_write_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS existed (
@@ -58,4 +59,5 @@ export function migrate(db: Database): void {
     "test_path",
     "ALTER TABLE live ADD COLUMN test_path TEXT NOT NULL DEFAULT ''",
   );
+  ensureColumn(db, "live", "last_write_at", "ALTER TABLE live ADD COLUMN last_write_at TEXT");
 }

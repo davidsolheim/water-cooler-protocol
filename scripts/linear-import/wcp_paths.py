@@ -10,6 +10,12 @@ from pathlib import Path
 WCP_DIR_NAME = ".wcp"
 LEGACY_WCP_DIR_NAME = ".WCP"
 QUEUE_FOLDERS = ("open", "in-progress", "in-review", "done", "canceled", "blocked")
+ARCHIVE_FOLDERS = ("done", "canceled")
+CREATED_RE = re.compile(
+    r"\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?Z\Z"
+)
+ISSUE_ID_RE = re.compile(r"\A\d{4,}\Z")
+ISSUE_SLUG_RE = re.compile(r"\A[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 LINEAR_IDENTIFIER_RE = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
 LINEAR_ID_LINE = re.compile(r"^linear_id:\s*(.*)$", re.M)
 
@@ -65,6 +71,32 @@ def issues_root(repo: Path) -> Path:
         if not resolved.is_relative_to(repo_abs):
             raise ValueError(f"{root} escapes the repository")
     return root
+
+
+def issue_stamp(created: str) -> str:
+    match = CREATED_RE.fullmatch(created.strip())
+    if not match:
+        raise ValueError(f"created must be ISO-8601 UTC with minutes: {created!r}")
+    return f"{match.group(1)}{match.group(2)}{match.group(3)}T{match.group(4)}{match.group(5)}Z"
+
+
+def issue_filename(created: str, wcp_id: str, slug: str) -> str:
+    if not ISSUE_ID_RE.fullmatch(wcp_id):
+        raise ValueError(f"issue id must be digits: {wcp_id!r}")
+    if not ISSUE_SLUG_RE.fullmatch(slug):
+        raise ValueError(f"issue slug must be lowercase words: {slug!r}")
+    return f"{issue_stamp(created)}-{wcp_id}-{slug}.md"
+
+
+def issue_dir(status: str, created: str) -> Path:
+    if status not in QUEUE_FOLDERS:
+        raise ValueError(f"unknown issue status: {status!r}")
+    if status not in ARCHIVE_FOLDERS:
+        return Path(status)
+    match = CREATED_RE.fullmatch(created.strip())
+    if not match:
+        raise ValueError(f"created must be ISO-8601 UTC with minutes: {created!r}")
+    return Path(status) / match.group(1) / match.group(2) / match.group(3)
 
 
 def parse_queue_folders(raw: str) -> list[str]:
