@@ -1,7 +1,7 @@
 ---
 id: 0001
 title: Stamp issue files and archive done and canceled by day
-status: in-review
+status: done
 priority: high
 assignee: queue-layout
 lease_expires:

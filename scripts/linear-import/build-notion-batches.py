@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> None:
             props["Labels"] = labels
         rel = path.relative_to(args.repo).as_posix()
         content = (
-            f"WCP `{wcp}`. Linear [{linear}]({url}).\n\n"
+            f"wcp `{wcp}`. Linear [{linear}]({url}).\n\n"
             f"{acceptance}\n\n"
             f"Full spec: `{rel}`"
         )

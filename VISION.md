@@ -1,30 +1,7 @@
-# Water Cooler Protocol
+# wcp
 
-A seating chart for who may write which file right now, on one shared local `dev` checkout.
+A shared checkout needs one visible record of who is editing what. That record is the issue file's folder.
 
-It is not Git, not a chat system, not a test runner, and not [Watercooler](https://github.com/mostlyharmless-ai/watercooler) (threads + ball-passing). Occupancy is not conversation.
+`in-progress/` means an agent is in that work on this machine. `done/` means the writing is finished. `deployed-dev/` and `deployed-main/` are the history after the commit reaches those branches.
 
-Home: [watercoolerprotocol.com](https://watercoolerprotocol.com)
-
-## V1
-
-Local referee for 8–20 coding agents on one dirty working tree:
-
-- `wcpd` + SQLite stay gitignored under `.wcp/`; the work queue in `.wcp/issues/` is committed
-- File seats (default 5 minutes), one path per agent, one agent per path. The seat covers research between hunks. `look` shows who is there without waiting for takeover
-- Claims only for files that existed when the run started. Tests are written first and are not claimed. New files are written directly.
-- Drift via sha256 at acquire
-- CLI + MCP
-- Agents name themselves (`wcp name`); the referee reserves the id
-- Agent skill with a conflict playbook
-- Git hooks: no board or sqlite commits; `.wcp/issues/` may be committed; agents (`WCP_AGENT`) cannot push
-- The orchestrator is the only agent who commits, and only when no source-file lease is live. Workers do not commit or stash.
-
-Humans still own `origin/dev` and main. Agents do not push, reset HEAD, or rewind sibling edits.
-
-## Later
-
-- watercoolerprotocol.com as a protocol page
-- Harness-level refuse of editor write tools without a lease
-- `watch` so agents are not polling `look`
-- Honor-mode markdown as a debug view writer (never as the store)
+Agents read each other's issue files and adapt. They do not commit while someone is still in `in-progress/`.

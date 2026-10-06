@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """Unit tests for Linear import path resolution, --force replacement, allowlists, and comment batching.
 
-# WCP prb-fix: scripts/linear-import/import-linear-to-wcp.py --force replaces stale linear_id files (fix linear-import)
-# WCP prb-fix: scripts/linear-import/import-linear-comments.py folder/id allowlist and batched comments query (fix linear-import)
-# WCP prb-fix: scripts/linear-import/import-linear-comments.py aliased issue(id:) batch, not IssueFilter.identifier (fix linear-import)
-# WCP prb-fix: scripts/linear-import/import-linear-comments.py --teams prefix filter skips planted HR-1 (fix linear-import)
-# WCP prb-fix: scripts/linear-import/import-linear-to-wcp.py require identifier and unlink symlink dest (fix linear-import)
-# WCP prb-fix: scripts/linear-import/apply-notion-ids.py resolve issues root like wcpDirName (fix linear-import)
-# WCP prb-fix: scripts/linear-import/build-notion-batches.py resolve issues root like wcpDirName (fix linear-import)
-# WCP prb-fix: scripts/linear-import/fix-wcp-acceptance.py resolve issues root like wcpDirName (fix linear-import)
-# WCP prb-fix: scripts/linear-import/import-linear-comments.py collect_pending skips files with no linear_id (fix linear-import)
-# WCP prb-fix: scripts/linear-import/import-linear-comments.py graphql keeps data when errors also present (fix linear-import)
-# WCP prb-fix: scripts/linear-import/apply-notion-ids.py unlink dest symlink before write (fix linear-import)
-# WCP prb-fix: scripts/linear-import/fix-wcp-acceptance.py unlink dest symlink before write (fix linear-import)
+# wcp prb-fix: scripts/linear-import/import-linear-to-wcp.py --force replaces stale linear_id files (fix linear-import)
+# wcp prb-fix: scripts/linear-import/import-linear-comments.py folder/id allowlist and batched comments query (fix linear-import)
+# wcp prb-fix: scripts/linear-import/import-linear-comments.py aliased issue(id:) batch, not IssueFilter.identifier (fix linear-import)
+# wcp prb-fix: scripts/linear-import/import-linear-comments.py --teams prefix filter skips planted HR-1 (fix linear-import)
+# wcp prb-fix: scripts/linear-import/import-linear-to-wcp.py require identifier and unlink symlink dest (fix linear-import)
+# wcp prb-fix: scripts/linear-import/apply-notion-ids.py resolve issues root like wcpDirName (fix linear-import)
+# wcp prb-fix: scripts/linear-import/build-notion-batches.py resolve issues root like wcpDirName (fix linear-import)
+# wcp prb-fix: scripts/linear-import/fix-wcp-acceptance.py resolve issues root like wcpDirName (fix linear-import)
+# wcp prb-fix: scripts/linear-import/import-linear-comments.py collect_pending skips files with no linear_id (fix linear-import)
+# wcp prb-fix: scripts/linear-import/import-linear-comments.py graphql keeps data when errors also present (fix linear-import)
+# wcp prb-fix: scripts/linear-import/apply-notion-ids.py unlink dest symlink before write (fix linear-import)
+# wcp prb-fix: scripts/linear-import/fix-wcp-acceptance.py unlink dest symlink before write (fix linear-import)
 """
 
 from __future__ import annotations
@@ -26,9 +26,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from wcp_paths import (
-    LEGACY_WCP_DIR_NAME,
+    QUEUE_DIR,
     QUEUE_FOLDERS,
-    WCP_DIR_NAME,
     is_linear_identifier,
     issue_dir,
     issue_filename,
@@ -39,7 +38,6 @@ from wcp_paths import (
     resolve_under_issues,
     wcp_dir_name,
     wcp_dir_name_from_entries,
-    wcp_dir_names,
     write_under_issues,
 )
 
@@ -66,42 +64,23 @@ def issue_md(linear_id: str, wcp_id: str = "0007", extra: str = "") -> str:
 
 
 class WcpDirNameTests(unittest.TestCase):
-    def test_entries_refuse_when_both_exist(self) -> None:
-        with self.assertRaises(ValueError) as caught:
-            wcp_dir_name_from_entries([".wcp", ".WCP", "src"])
-        self.assertIn("both .wcp/ and .WCP/", str(caught.exception))
-        self.assertIn("nests a tree", str(caught.exception))
+    def test_entries_always_use_wcp(self) -> None:
+        self.assertEqual(wcp_dir_name_from_entries([".wcp", "src"]), QUEUE_DIR)
+        self.assertEqual(wcp_dir_name_from_entries(["src"]), QUEUE_DIR)
+        self.assertEqual(wcp_dir_name_from_entries([".Wcp"]), QUEUE_DIR)
 
-    def test_entries_use_legacy_when_it_is_the_only_queue_dir(self) -> None:
-        self.assertEqual(wcp_dir_name_from_entries([".WCP", "src"]), LEGACY_WCP_DIR_NAME)
-
-    def test_entries_default_to_canonical_when_absent(self) -> None:
-        self.assertEqual(wcp_dir_name_from_entries(["src"]), WCP_DIR_NAME)
-
-    def test_entries_match_is_exact_not_casefold(self) -> None:
-        self.assertEqual(wcp_dir_name_from_entries([".Wcp"]), WCP_DIR_NAME)
-        self.assertEqual(wcp_dir_name_from_entries([".WCP"]), LEGACY_WCP_DIR_NAME)
-
-    def test_live_legacy_only_tree(self) -> None:
+    def test_live_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / LEGACY_WCP_DIR_NAME / "issues" / "open").mkdir(parents=True)
-            self.assertEqual(wcp_dir_names(root), {"canonical": False, "legacy": True})
-            self.assertEqual(wcp_dir_name(root), LEGACY_WCP_DIR_NAME)
-            self.assertEqual(issues_root(root), root / LEGACY_WCP_DIR_NAME / "issues")
+            (root / QUEUE_DIR / "issues" / "open").mkdir(parents=True)
+            self.assertEqual(wcp_dir_name(root), QUEUE_DIR)
+            self.assertEqual(issues_root(root), root / QUEUE_DIR / "issues")
 
-    def test_live_canonical_tree(self) -> None:
+    def test_absent_queue_defaults_to_wcp(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / WCP_DIR_NAME / "issues" / "open").mkdir(parents=True)
-            self.assertEqual(wcp_dir_name(root), WCP_DIR_NAME)
-            self.assertEqual(issues_root(root), root / WCP_DIR_NAME / "issues")
-
-    def test_absent_queue_defaults_to_canonical(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self.assertEqual(wcp_dir_name(root), WCP_DIR_NAME)
-            self.assertEqual(issues_root(root), root / WCP_DIR_NAME / "issues")
+            self.assertEqual(wcp_dir_name(root), QUEUE_DIR)
+            self.assertEqual(issues_root(root), root / QUEUE_DIR / "issues")
 
 
 class ForceReplaceTests(unittest.TestCase):
@@ -407,13 +386,21 @@ class DestSymlinkWriteTests(unittest.TestCase):
 
 
 class AllowlistTests(unittest.TestCase):
-    def test_queue_folders_are_the_six_status_names(self) -> None:
+    def test_queue_folders_are_the_status_names(self) -> None:
         self.assertEqual(
             QUEUE_FOLDERS,
-            ("open", "in-progress", "in-review", "done", "canceled", "blocked"),
+            (
+                "open",
+                "in-progress",
+                "done",
+                "deployed-dev",
+                "deployed-main",
+                "canceled",
+                "blocked",
+            ),
         )
 
-    def test_parse_queue_folders_accepts_the_six_names(self) -> None:
+    def test_parse_queue_folders_accepts_the_status_names(self) -> None:
         self.assertEqual(parse_queue_folders("open,done"), ["open", "done"])
         self.assertEqual(parse_queue_folders(",".join(QUEUE_FOLDERS)), list(QUEUE_FOLDERS))
 
@@ -864,10 +851,10 @@ class CodexFollowupTests(unittest.TestCase):
             "---\n"
             'id: "0007"\n'
             'title: "Old title"\n'
-            "status: in-review\n"
+            "status: done\n"
             "priority: normal\n"
             "assignee: agent-1\n"
-            "lease_expires: 2026-09-26T18:00:00Z\n"
+            "dev: deadbeef\n"
             'scope: "old scope"\n'
             'acceptance: "Keep the local done definition."\n'
             "files:\n"
@@ -879,7 +866,7 @@ class CodexFollowupTests(unittest.TestCase):
             "old body\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
-            issues = Path(tmp) / ".wcp" / "issues" / "in-review"
+            issues = Path(tmp) / ".wcp" / "issues" / "done"
             issues.mkdir(parents=True)
             (issues / "0007-soda-7.md").write_text(old, encoding="utf-8")
             issue = {
@@ -890,14 +877,14 @@ class CodexFollowupTests(unittest.TestCase):
                 "priority": 2,
             }
             status, kept = importer.refreshed_issue(issue, "0007", issues.parent, "SODA-7")
-            self.assertEqual(status, "in-review")
+            self.assertEqual(status, "done")
             front = kept.split("---", 2)[1]
-            self.assertIn("\nstatus: in-review\n", front)
+            self.assertIn("\nstatus: done\n", front)
             self.assertNotIn("\nstatus: open\n", front)
-            self.assertIn("- Queue status: in-review", kept)
+            self.assertIn("- Queue status: done", kept)
             self.assertNotIn("- Queue status: open", kept)
             self.assertIn("assignee: agent-1", kept)
-            self.assertIn("lease_expires: 2026-09-26T18:00:00Z", kept)
+            self.assertIn("dev: deadbeef", kept)
             self.assertIn("  - src/a.ts", kept)
             self.assertIn("commit: abc123", kept)
             self.assertIn('reason: "Held for review."', kept)
@@ -1293,10 +1280,14 @@ class CodexFollowupTests(unittest.TestCase):
         name = issue_filename(created, "0123", "rotate-refresh-token")
         self.assertEqual(name, "20261001T1202Z-0123-rotate-refresh-token.md")
         self.assertEqual(issue_dir("open", created), Path("open"))
-        self.assertEqual(issue_dir("in-review", created), Path("in-review"))
+        self.assertEqual(issue_dir("in-progress", created), Path("in-progress"))
         self.assertEqual(
             issue_dir("done", created),
             Path("done") / "2026" / "10" / "01",
+        )
+        self.assertEqual(
+            issue_dir("deployed-dev", created),
+            Path("deployed-dev") / "2026" / "10" / "01",
         )
         self.assertEqual(
             issue_dir("canceled", created),

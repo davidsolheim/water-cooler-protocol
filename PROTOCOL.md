@@ -1,356 +1,85 @@
-# Water Cooler Protocol
+# wcp
 
-WCP coordinates many coding agents on one shared local `dev` checkout. It is a seating chart for who may write which file right now, plus rules so agents treat drift as other workers rather than corruption.
+Many coding agents share one local `dev` checkout. The issue files under `.wcp/issues/` are the whole protocol. There is no daemon, no database, and no lease command.
 
 Home: [watercoolerprotocol.com](https://watercoolerprotocol.com)
 
-`.wcp/` holds two layers. The floor (`.wcp/RUN.md`, `.wcp/run.sqlite`, and its wal/shm) is gitignored and never committed. The queue (`.wcp/issues/`) is tracked and committed with the branch. Other local runtime under `.wcp/` (socket, lock, pid, log, mode, barrels) is not the queue; hooks reject every `.wcp/` path that is not under `.wcp/issues/`. A legacy `.WCP/` folder is held to the same rule.
-
-## Place in the Git loop
-
-```
-local dev          agents + you build here; the board stays on this machine
-    ↓ you check     issues in .wcp/issues/ ride with the commit
-origin/dev         your export after review
-    ↓ PR
-origin/main        product
-```
-
-Agents do not push `origin/dev`. They do not reset HEAD. They do not rewind the tree because another agent touched a file.
-
-## Layers
-
-| Layer | What exists | When |
-|---|---|---|
-| L0 Honor | Skill + `.wcp/RUN.md` as a human view | Skill still moving; not the store |
-| L1 Referee | Skill + `wcpd` + local SQLite | V1. Board must be true |
-| L2 Gate | L1 + `write_ok` + local git hooks | Writes without a lease fail the check; agents cannot push |
-
-Same protocol at every layer. Thicker walls.
-
-## Floor and queue
-
-The floor is who is mid-write on which source file. `.wcp/RUN.md` is a rendered view of that occupancy plus `arch`. It is not a backlog. Do not put specs, ticket status, or diffs on it.
-
-The queue is what work exists, who holds the ticket, and what done means. It lives in git under `.wcp/issues/`. A ticket lease is not a source-file lease. Do not `acquire` an issue file. One live source file per agent still holds.
-
-This queue is for one builder running many agents on one checkout. It does not call Linear, Jira, GitHub Issues, or Notion.
-
-V1 implements L1 fully. L2 is `write_ok` plus git hooks. Harness-level wrapping of editor write tools is later.
-
-## Actors
-
-A human starts a run and sets `arch` (the session’s architectural aim). Each developer agent names itself. The id is short and lowercase (`session-refresh`, `tw-331`). The agent calls `name`, then exports `WCP_AGENT` and `WCP_NAME_TOKEN`. A second agent who asks for a taken name gets `name_taken` and picks another. The same token may confirm the same name. A token presented for a different id gets `already_named`. The board holds occupancy and those names. It does not assign them.
-
-## Lease
-
-A lease is a seat on a file that was already in the worktree. The seat means this agent is in this file, including research between hunks. The next hunk may still be in an unflushed buffer. That buffer is part of the seat. A lease is not a task and not a new file.
-
-`wcp start` snapshots the worktree into `existed` (tracked files plus untracked files git does not ignore). That snapshot is the set of files that existed when work began. `wcp start` again does not refresh it. `wcp start --force` does.
-
-- **Test file:** write it. No acquire, no release. A test path is never a claim.
-- **Any other path not in `existed`:** write it. No acquire, no release. It did not exist when the run started, so one worker owns it. Do not start a second writer on a new path. Later edits to that new file stay unclaimed for the rest of the run.
-- **A path in `existed`:** acquire it when you enter the file, including when the file has since been deleted. `acquire` is refused until a test on disk names that path.
-- While you stay in the file, `reup` is the heartbeat. It refreshes `expires_at` by the takeover window. It does not require a write. Heartbeat during research between hunks, not only while flushing.
-- Release when you leave the file. Holding the seat through tests, or through work on a different file, is a violation.
-- Failed tests → `look` → acquire again (a new acquire, not a held lease).
-- One live source path per agent. One agent per path.
-- Default TTL: 300 seconds. That window is how long a quiet seat is protected. It is not how long a human waits to see who is there.
-
-Idle for a source lease means no heartbeat and no write for that window, or a dead recorded pid. A long live list is not camping. Camping means the seat is held through tests or across files.
-
-Test paths: `*.test.ts` / `*.test.tsx` / `*.test.js` / `*.test.jsx` / `*.test.mjs` / `*.test.cjs` / `*.test.mts` / `*.test.cts`, the same with `.spec.`, any file under `__tests__/`, `*_test.go`, `*_test.py`, `test_*.py`, `*_test.rs`, `*_test.rb`, `*_spec.rb`, `*Test.java`, `*Tests.java`, `*.test.cs`, `*_test.exs`.
-
-## Tests first, not on the board
-
-Each agent writes or appends their test before acquiring an existing file. The test file is not claimed. A one-line comment names the path they are about to claim, states what the test proves, and points at `arch`:
-
-```
-// WCP auth-1: src/auth/session.ts refresh cookie rotates on session mint (arch)
-```
-
-(`# WCP` / `-- WCP` in other languages.) The line must contain `WCP <id>:` and the claimed path. The referee accepts the claim only when that test file exists, is a test path, was modified during this run, and a line names both the agent and the path. It does not run the test.
-
-Never delete someone else’s tests. Never hollow a test to make your slice green. During a run, execute **your** tests. Mid-run red often means another agent is mid-edit; do not “fix” their source to pass yours. Full green is the human’s gate before `origin/dev`.
-
-Prefer a per-slice test file so two agents are not appending to the same test.
-
-## Overtake
-
-Take a source-file seat only when both are true: the path has not been written in 5 minutes, and this agent has not heartbeated in 5 minutes. A dead recorded pid loses the seat immediately. There is no buffer left to protect.
-
-Take it only to finish the work already in motion. Inherit `doing` and `scope`. Set `from_agent`. Do not revert their hunks. Do not swap designs.
-
-If the work is wrong, do not overtake. Start a new lease after `arch` or the human says so.
-
-## Barrels
-
-Lockfiles, generated clients, root schema: still exclusive (every path is). Short leases still serialize them. `.wcp/barrels` is a glob list the skill treats as extra-hot. It is not a second lock type.
-
-## Drift
-
-Re-read the board and the real file before every write. On acquire, store `sha256` of the path (`MISSING` if the file does not exist). If disk ≠ snapshot: `drift`. Change outside your scope: leave it. Change inside your scope: stop, look, wait or retarget. Never rewind the repo.
-
-## Store
-
-`.wcp/run.sqlite` — local file, WAL, `busy_timeout=5000`. Not Prisma, not Turso, not Postgres. Four tables. Raw SQL. The daemon is the only client.
-
-```sql
-CREATE TABLE run (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  branch TEXT NOT NULL DEFAULT 'dev',
-  arch TEXT NOT NULL DEFAULT '',
-  ttl_sec INTEGER NOT NULL DEFAULT 300,
-  created_at TEXT NOT NULL,
-  snap_at TEXT
-);
-
-CREATE TABLE live (
-  agent_id TEXT NOT NULL PRIMARY KEY,
-  path TEXT NOT NULL UNIQUE,
-  doing TEXT NOT NULL,
-  scope TEXT NOT NULL DEFAULT '',
-  from_agent TEXT,
-  leased_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  sha256 TEXT NOT NULL,
-  pid INTEGER,
-  test_path TEXT NOT NULL DEFAULT '',
-  last_write_at TEXT
-);
-
-CREATE TABLE existed (
-  path TEXT PRIMARY KEY
-);
-
-CREATE TABLE actor (
-  agent_id TEXT PRIMARY KEY,
-  token TEXT NOT NULL,
-  named_at TEXT NOT NULL,
-  pid INTEGER
-);
-```
-
-One run row. `arch` is the aim of the session. `snap_at` is when `existed` was captured. One live row per agent, one per path. `UNIQUE(path)` is the exclusive lease. `test_path` is the test file that justified the claim. `existed` is the worktree at `snap_at`. One `actor` row per name reserved for the run. `token` is the proof that this session owns the name. `pid` is set for a long-lived MCP client and left null for the one-shot CLI. Timestamps are ISO-8601 UTC. No test text, no source, no chat. `look` returns names without tokens.
-
-`.wcp/RUN.md` is a rendered view of `look`. Humans glance. Agents call RPC.
-
-`.wcp/mode` is `referee` in V1.
-
-## Process
-
-`wcpd` — one process per checkout. Not a hosted product. Not multi-tenant.
-
-```
-agents ── look / acquire / release / overtake / write_ok ──► wcpd ──► run.sqlite
-                                                               └── .wcp/wcp.sock
-```
-
-- Bind: Unix socket `.wcp/wcp.sock`
-- Trust: if you can write the checkout, you can talk to the socket
-- Life: start with the run; CLI auto-starts the daemon; `wcp stop` exits it
-- Singleton: exclusive lock `.wcp/wcpd.lock`; stale socket unlinked if the lock is free
-- Clients: MCP tools or `wcp`. Agents do not open SQLite.
-
-`look` does not reap. A quiet seat stays visible until `overtake` or `reap`, so a human sees it on the next poll. `reap` drops idle rows. Idle means no heartbeat and no write for the takeover window, or a recorded `pid` is dead.
-
-`pid` is for long-lived clients (MCP). The one-shot CLI does not send `pid` — each invoke would look dead immediately. The heartbeat (`reup`) is the idle clock for CLI seats. `look` does not hash the tree. `last_write_at` is the mtime of that path, or the write time stored at flush.
-
-### RPC
-
-Newline-delimited JSON on the socket.
-
-| Call | Result |
-|---|---|
-| `look` | `{ arch, branch, ttl_sec, now, names[], live[] }`. Each live row has `path`, `agent_id`, `doing`, `scope`, `from_agent`, `pid`, `leased_at`, `expires_at`, `last_write_at` (`drift` too; names omit tokens). Does not hash the tree. Does not reap. |
-| `start` | session row; does not wipe live or names unless `force` |
-| `stop` | all live rows and names gone, daemon exits |
-| `name { agent, token?, pid? }` | `{ agent, token }`, or `name_taken` / `already_named` / `no_run` |
-| `set_arch` | session aim; `{ human: true }` required |
-| `acquire { agent, path, doing, test, scope?, pid? }` | row inserted, or `no_test` / `test_file` / `new_file` / `conflict` / `agent_busy` |
-| `release { agent }` | row gone |
-| `reup { agent }` | refreshes `expires_at` to now + ttl while this agent still holds the row. No write required. Allowed through research, until takeover. |
-| `overtake { agent, path, test }` | `not_idle` while the seat is inside the 5-minute write-and-heartbeat window. A dead pid is takeable immediately. Else inherit intent, set `from_agent`, require `test` |
-| `write_ok { agent, path }` | ok (`claim: test` or `claim: new_file` with no lease), or `no_lease` / `wrong_path` / `expired` / `drift` / `wrong_branch` / `no_run` |
-| `reap` | `{ released }` plus dead-pid names dropped |
-
-`acquire` on a test path is `test_file`. `acquire` on a path absent from `existed` is `new_file`. Otherwise the test file must already be on disk.
-
-`write_ok` order: run exists; `HEAD` == `run.branch`; if the path is a test file, ok with `claim: test`; if the path is not in `existed`, ok with `claim: new_file`; else agent holds `path`, the heartbeat has not expired, the recorded pid is alive, and disk sha == snapshot (or both `MISSING`). A recent write does not extend `write_ok` without a heartbeat. It does keep the seat from being taken.
-
-No `wait` RPC. On conflict: retarget, overtake if the seat is idle, or pick another path from `arch`.
-
-`set_arch` is human-only. MCP does not expose it.
-
-## A single agent turn
-
-```
-name <id>          export WCP_AGENT and WCP_NAME_TOKEN
-look
-write/append the test that names the existing path    (no acquire)
-# new file: write it and stop. no acquire, no write-ok
-look
-acquire existing path --test <test-file>
-# research in the file. reup is the heartbeat. it does not require a write.
-write-ok
-re-read source from disk
-edit, flush to disk
-# still in the file: reup between hunks
-release                 # when you leave the file, and always before tests
-run your tests
-if red → look → acquire → write-ok → edit → release → run again
-```
-
-A long live list means agents are in files. That is the seat. Camping means a seat held through tests or across files.
-
-## Observer
-
-`look` is the observer API. It stays cheap. It does not hash the tree. It does not reap. Each live row returns `path`, `agent_id`, `doing`, `scope`, `from_agent`, `pid`, `leased_at`, `expires_at`, and `last_write_at`. `last_write_at` is the mtime of that path, or the write time stored at flush. `.wcp/RUN.md` shows the age since that write on the live line. A seat whose last write was 4 minutes ago looks stale. A seat that can be taken looks takeable.
-
-A human surface may poll `wcp look` on each active checkout every 5 seconds. Idle checkouts are not in that set. Occupancy is visible on the next poll. Five minutes is only how long a quiet seat is protected, not how long a human waits to see who is there.
-
-Authority stays in the checkout. There is no machine-wide lock, no FuturaTerm store, and no resident daemon per idle repo. A multiplexer unions `look` snapshots from the checkouts it already has open. FuturaTerm is not this repo. Do not edit `RUN.md` by hand. Call `wcp`.
-
-## Issues
-
-The issue file is the record of work in this checkout. Write it before the work, and before any Notion call. Notion is a later copy. A failed Notion call does not stop claim, work, close, or ship.
-
-Every session task files at least one issue. One change that can be claimed, reviewed, and shipped on its own is one file. Two such changes are two files. They share `session`, the UTC time the session opened. There is no parent issue and no session directory.
+## Folders
 
 ```
 .wcp/issues/
-  open/20261001T1202Z-0123-rotate-refresh-token.md
-  in-progress/20261001T1202Z-0123-rotate-refresh-token.md
-  in-review/20261001T1202Z-0123-rotate-refresh-token.md
-  blocked/20261001T1202Z-0123-rotate-refresh-token.md
-  done/2026/10/01/20261001T1202Z-0123-rotate-refresh-token.md
-  canceled/2026/10/01/20261001T1202Z-0123-rotate-refresh-token.md
+  open/                          backlog. does not block a commit
+  in-progress/                   an agent is editing this, on this machine
+  done/YYYY/MM/DD/               writing is finished. the code is in the tree. not pushed
+  deployed-dev/YYYY/MM/DD/       the commit is on origin/dev
+  deployed-main/YYYY/MM/DD/      the commit is on origin/main
+  blocked/                       still wanted. do not pick it up. reason is set
+  canceled/YYYY/MM/DD/           will not be done. reason is set
 ```
 
-`open/`, `in-progress/`, `in-review/`, and `blocked/` stay flat. A new `done/` or `canceled/` file goes under `YYYY/MM/DD` taken from `created`, not from the time it was closed. Readers walk every `*.md` under the status directory, including a day tree and any older flat file.
+`open/`, `in-progress/`, and `blocked/` stay flat. `done/`, `deployed-dev/`, `deployed-main/`, and `canceled/` go under `YYYY/MM/DD` from `created`. Walk every `*.md` under a status directory, including a day tree and any older flat file.
 
-The filename is `YYYYMMDDThhmmZ-<id>-<slug>.md`. The stamp is the minute in `created`, UTC, with no colons. The id stays stable and is the Notion key. A status move keeps the filename and changes only the directory (`git mv` once the file is tracked). `status` inside the file is the source of truth. The folder is a projection.
+The filename is `YYYYMMDDThhmmZ-<id>-<slug>.md`. A move keeps that filename. Set `status` to the folder name, then move the file.
+
+An issue left in `in-review/` is finished writing. Move it to `done/`.
+
+## The run
+
+1. At the start, look in `done/`. If that issue's commit is already on `origin/dev`, move it to `deployed-dev/` and write the sha in `dev`. If it is already on `origin/main`, move it to `deployed-main/` and write the sha in `main`. Then read `in-progress/`.
+2. Take one issue from `open/` whose `files` do not overlap an issue already in `in-progress/`. Move it to `in-progress/`. Write your name in `assignee`. Read it back. If `assignee` is not you, stop.
+3. Add each path to `files` as you write it. Another agent reads `in-progress/` and works around those paths.
+4. When the writing matches `acceptance`, move the issue to `done/`.
+5. If `in-progress/` still has anything, or you still have another task, stop. Do not commit. Do not push. Leave the tree dirty.
+6. If `in-progress/` is empty and you have no further task, commit the tree, push `dev` to `origin/dev`, write that sha into `dev` on each `done/` issue from that commit, and move those issues to `deployed-dev/`.
+7. A later run's start check moves an issue to `deployed-main/` only after its commit is on `origin/main`, and writes that sha into `main`.
+
+`open/` does not block the push. Only `in-progress/` means someone is still editing.
+
+Do not commit while any issue is in `in-progress/`. Do not reset, checkout, or stash. Another agent's uncommitted work stays.
+
+If you edit a file that already has uncommitted changes, find every issue in `in-progress/` or `done/` whose `files` list includes that path. Read that issue and the other paths in its `files`. Keep the behavior its `acceptance` describes. Your edit builds on those changes. Do not revert them, and do not leave that acceptance broken.
+
+A crashed agent leaves an issue in `in-progress/`. The next agent moves it back to `open/` when the work has stopped, and clears `assignee`.
+
+## Issue file
 
 ```yaml
 ---
 id: 0123
 title: Rotate refresh token on session mint
-status: open | in-progress | in-review | done | canceled | blocked
-priority: low | normal | high | critical
-assignee:          # agent id, empty if unclaimed
-lease_expires:     # ISO-8601 UTC, empty if unclaimed
-scope:             # what this ticket is allowed to change
-acceptance:        # short done definition
-files: []          # paths touched while solving
-commit:            # work-commit hash, empty until the orchestrator writes it
-pr:                # pull request URL, empty until the ship knows it
-reason:            # why it was canceled or blocked; empty unless status is canceled or blocked
+status: open
+assignee:
+files: []
+acceptance:
+reason:
+dev:
+main:
 created: 2026-10-01T12:02:00Z
 session: 2026-10-01T12:00:00Z
-notion_page_id:    # filled when a Notion copy succeeds; empty until then
-notion_url:
 ---
 ```
 
-The body is the spec, short enough to work from.
+The body under the frontmatter is the spec. `dev` and `main` stay empty until those commits exist. `reason` is required to block or cancel.
 
-### Notion resync
+Search `blocked/` and `canceled/` before filing the same work again. Read `reason`. Unblocking moves the file to `open/` and leaves `reason`. Reviving a canceled issue does the same, and only when the user says to.
 
-After the file is written, a filing skill, the orchestrator, or a ship skill may copy it to Notion. Do that outside a source-file lease. If Notion fails, the file stands. Do not stop the work, and do not keep the only copy of the result in chat.
+Commit `.wcp/issues/` and `.wcp/tracker.md`. Do not commit any other path under `.wcp/`.
 
-A resync walks `open/`, `in-progress/`, `in-review/`, and `blocked/` whole, and walks `done/` and `canceled/` by day. It upserts each issue id. Running it twice is safe. There is no sync cursor and no daemon. `notion_page_id` and `notion_url` are filled when a copy succeeds so the next resync updates that row. `pr` is written on the file when the ship knows the pull request URL.
+## External tracker
 
-File `done` means the reviewer passed. Notion `done` means the ship is on `origin/main`. The referee does not call Notion.
+wcp issues are always created and managed in `.wcp/issues/`. An external tracker is optional.
 
-Gitignore, and what `wcp init` writes:
+The choice lives in `.wcp/tracker.md`:
 
-```
-.wcp/RUN.md
-.wcp/run.sqlite
-.wcp/*.sqlite-wal
-.wcp/*.sqlite-shm
-```
-
-A blanket `.wcp/` or `.WCP/` ignore is removed when init runs, because it would hide the queue. Always commit `.wcp/issues/`. Never commit the board or sqlite.
-
-### Migrating from .WCP
-
-`.wcp/` is the queue folder. If a checkout has `.WCP/` and no `.wcp/`, the tool keeps using `.WCP/`. `wcp init`, `wcp start`, and `wcp doctor` print:
-
-```
-git mv .WCP .wcp-tmp && git mv .wcp-tmp .wcp
+```yaml
+---
+tracker: none
+url:
+---
 ```
 
-If Git reports that the source directory is empty because the folder holds only untracked runtime files, use the same two steps without Git:
+`tracker` is `none`, or a tool the user named: `notion`, `linear`, `jira`, or another. `url` is that board or project. `none` leaves `url` empty.
 
-```
-mv .WCP .wcp-tmp && mv .wcp-tmp .wcp
-```
+Ask the user once when this file is missing. `none` is a complete answer. Record it and do not ask again. If you cannot ask, leave the file missing and keep going. A missing file means wcp only.
 
-Two steps, because a case-insensitive volume treats those names as one directory. Hooks allow `issues/` under either spelling and reject every other path under either folder. While the checkout is still on `.WCP/`, init also writes the four occupancy gitignore lines with that spelling.
-
-If both `.wcp/` and `.WCP/` exist as directory entries, `wcp` refuses to start and `wcp doctor` exits non-zero. Stop any daemon. Do not rename one folder onto the other. That nests a tree, and the legacy queue and runtime database are left behind. Copy issue files from `.WCP/issues/` into `.wcp/issues/` only when the destination file is missing, keep the runtime database you still need, then remove `.WCP/` after checking the copy.
-
-### Ticket lease
-
-Claim: set `assignee` to the agent id, `status: in-progress`, `lease_expires` to now + 10 minutes (UTC), write the file, move it to `in-progress/` keeping the stamped filename. Re-read. If `assignee` is not you, you do not hold it.
-
-The holder renews inside that window by setting `lease_expires` to now + 10 minutes again. Editing the issue file does not take a source-file lease.
-
-Reclaim when `lease_expires` is past and the holder is not renewing. Clear `assignee` and `lease_expires`, set `status: open`, move the file to `open/` keeping the stamped filename. Reclaim is idempotent. Only one agent may be `assignee`. If two writes race, the last writer re-reads and leaves a single assignee. A reclaim that finds a future `lease_expires` and an assignee leaves that claim in place.
-
-Close when the work matches `acceptance`. The solver records touched paths in `files`, releases every source-file lease, and leaves the tree dirty. The solver sets `status: in-review`, clears `lease_expires`, leaves `assignee` as itself, leaves `commit` and `pr` empty, and moves the file to `in-review/` keeping the stamped filename. A solver does not run `git commit` and does not run `git stash`. On a shared checkout, a stash hides another writer's uncommitted files.
-
-The orchestrator watches `.wcp/issues/in-review/`. For each file there, it launches one reviewer. The reviewer reads that issue and the paths in `files`, and checks security, accessibility, functionality, and aesthetics against `acceptance`. If the check fails, the reviewer fixes the code under the file lease, then releases it. The reviewer does not commit and does not stash. When the check passes, the reviewer sets `status: done`, clears `assignee` and `lease_expires`, and moves the file to `done/YYYY/MM/DD/` from `created`, keeping the stamped filename.
-
-The orchestrator is the only one who commits. It does not commit while a reviewer is still running. A commit happens only when `wcp look` shows no live source-file lease. A live lease means a writer is mid-edit. Wait. Do not commit that burst and do not stash it. An in-review ticket is not a source-file lease.
-
-1. Commit the work. `files` already lists the paths. `commit` cannot name a hash that does not exist yet.
-2. Write that hash into `commit` on the done file. When the ship knows the pull request URL, write it into `pr` as well.
-3. Commit that issue-file update. `wcp look` is still empty.
-
-If the orchestrator has not committed, leave `commit` empty. The reviewer may already have set `done`. The issue file is the completion record.
-
-Cancel when the work will not be done. The holder may cancel a ticket they hold. The orchestrator may cancel an open ticket, or an expired `in-progress` ticket. Do not cancel a ticket another agent holds under a live lease. Write `reason` (required), set `status: canceled`, clear `assignee` and `lease_expires`, and move the file to `canceled/YYYY/MM/DD/` from `created`, keeping the stamped filename. Leave `commit` empty unless a work hash already exists. Leave `pr` empty unless a pull request URL already exists. Do not delete the file and do not set `done`. Re-read and leave a single `reason`. The orchestrator commits the issue file, and only when `wcp look` shows no live source-file lease. Do not stash to make that commit. Search `canceled/` and `status: canceled` before filing the same work again. Revive only when the user says so: set `status: open`, clear the lease, move to `open/`, and leave `reason` in place.
-
-Block when the work is still wanted and must not be claimed yet. The holder may block a ticket they hold. The orchestrator may block an open ticket, or an expired `in-progress` ticket. Do not block a ticket another agent holds under a live lease. Write `reason` (required), set `status: blocked`, clear `assignee` and `lease_expires`, and move the file to `blocked/` keeping the stamped filename. Leave `commit` empty unless a work hash already exists. Leave `pr` empty unless a pull request URL already exists. Do not delete the file, do not set `done`, and do not set `canceled`. Re-read and leave a single `reason`. The orchestrator commits the issue file, and only when `wcp look` shows no live source-file lease. Do not stash to make that commit. Do not claim a file in `blocked/`. Search `blocked/` and `status: blocked` before filing the same work again. Unblocking sets `status: open`, clears the lease, moves the file to `open/`, and leaves `reason` in place.
-
-### How a ticket is worked
-
-On start, read `open/`, `in-progress/`, and `in-review/`. Walk every markdown file in those folders. Reclaim expired `in-progress` tickets. Do not reclaim `in-review`. Do not rebuild that list on `RUN.md`. `arch` stays the session aim, not a copy of every ticket. If the queue directories do not exist and this run needs a queue, create `open/`, `in-progress/`, `in-review/`, `done/`, `canceled/`, and `blocked/`. File one stamped issue for this session's task. File another when the session contains a separate change. Do not invent a backlog.
-
-The orchestrator, or the agent if none is assigned, picks one file in `open/` and claims it. Skip `blocked/`, `canceled/`, and `in-review/`. One ticket per agent unless the user says otherwise. Do not claim a directory. The body is the spec. Implementation uses the file seats above: test first, then a source seat. Heartbeat with `reup` while you are in the file. Release before tests, before work on a different file, or before the orchestrator's commit. Workers do not commit and do not stash. Append paths to `files`. Do not put the diff on `RUN.md`.
-
-Two agents do not hold the same ticket. They do not hold the same source file. Different files on one ticket only when `scope` allows it, and each agent still holds one live source file. An idle ticket lease is a protocol violation. A source seat held through tests or across files is the same kind of violation.
-
-### Two clocks
-
-Do not collapse them.
-
-- File takeover is 5 minutes of no write and no heartbeat, or a dead pid. Default TTL is 300 seconds. `overtake` inherits `doing` and `scope`. That clock is not `lease_expires`.
-- Ticket reclaim is 10 minutes on the issue's `lease_expires`. Ticket leases do not acquire the issue file.
-
-## What this system is not
-
-- **Not a substitute for Git.** The orchestrator makes the local commit, and only when no source-file lease is live. Push and the PR to main stay the human export, which also waits until `wcp look` is empty.
-- **Not Watercooler** (threads + ball-passing). Occupancy ≠ conversation.
-- **Not worktrees.** Those isolate checkouts. WCP keeps everyone on one live `dev`.
-- **Not a backlog on `RUN.md`.** Specs, status, and the closing hash live on the issue file. The board is occupancy and `arch`.
-- **Not Linear, Jira, or GitHub Issues.** WCP work is assigned from `.wcp/issues/` only. Notion is a copy of that queue for humans. The referee does not call it.
-- **Not Turso/Prisma/Neon.** The board is a mutex with a few strings.
-
-## Failure modes the system accepts
-
-- Barrel files that already exist still serialize.
-- New paths are unleased. Two workers can write the same new file; the run assumes one owner.
-- Test files are unleased. Two workers can append to the same test file. Prefer a per-slice test file.
-- Honor system will be ignored by some models; L1/L2 exist for that.
-- You remain the gate before `origin/dev`. WCP keeps agents from eating each other. It does not review the pile.
-- Shell bypass of editor tools can still write without `write_ok`. V1 does not revert those writes (revert is rewind).
-- Operating point is 8–20 writers on disjoint files, not 100.
-
-## Paths
-
-Repo root is `git rev-parse --show-toplevel`. WCP refuses to run outside a git checkout. Board paths are relative to that root, POSIX, no `..`, no leading `./`, no absolutes.
-
-Agent ids match `^[a-z0-9][a-z0-9._:-]{0,63}$`. The agent chooses the id. `name` reserves it for the run. A null `pid` (CLI) stays until `stop` or `start --force`. A recorded `pid` that is dead can be reclaimed by a new `name`, and `reap` drops it.
+When `tracker` is not `none`, every create, status move, `files` change, and `dev` or `main` sha is written to that tool as well. The file is written first. A failed external write does not undo the file. Do not create a second queue.

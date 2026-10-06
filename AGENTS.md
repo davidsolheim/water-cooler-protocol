@@ -1,34 +1,26 @@
 # AGENTS.md
 
-This repo is the Water Cooler Protocol tool (`wcp` / `wcpd`), not a Next app.
+This repo is wcp. It is a spec and a skill. It is not a daemon.
 
 ## Product
 
 - Spec: `PROTOCOL.md`
-- Vision: `VISION.md`
 - Player instructions: `skill/water-cooler-protocol/SKILL.md`
-- Facts live in `PROTOCOL.md`. The skill repeats the issue-queue rules so an agent can claim, renew, reclaim, and close from the skill alone. Keep the two in agreement.
-
-## Stack
-
-- TypeScript on Bun
-- `bun:sqlite` (no Prisma)
-- `bun test`
-- Compile: `bun run build` → `dist/wcp`
+- Keep those two in agreement.
 
 ## Git
 
 - Integration branch: `dev`
-- Do not commit the board or sqlite (`.wcp/RUN.md`, `.wcp/run.sqlite`, wal, shm) or `.watercool/`
-- Do commit `.wcp/issues/`
-- A checkout with only `.WCP/` still runs. `wcp doctor` prints the migrate command. See PROTOCOL.md.
-- Only the orchestrator runs `git commit`, and only when `wcp look` shows no live source-file lease. Workers do not commit or stash.
-- Do not push unless asked
+- Commit `.wcp/issues/`
+- Do not commit any other path under `.wcp/` or `.watercool/`
+- Do not commit while an issue is in `.wcp/issues/in-progress/`
+- Do not push unless the run is quiet: `in-progress/` is empty and this agent has no further task
+- Do not reset, checkout, or stash another agent's work
 
 ## Tests
 
 ```bash
-bun test
+python3 -m unittest discover -s scripts/linear-import -p 'test_*.py'
 ```
 
-`bun test` also runs the Python unittest suite under `scripts/linear-import/`. Protocol behavior (exclusive lease, TTL, overtake, drift, write_ok, test-before-claim, unclaimed test files and new files, self-named agents) must stay covered. Do not reintroduce `wait` from `legacy/wcooler.sh`.
+The Python suite checks the Linear importer's issue paths.

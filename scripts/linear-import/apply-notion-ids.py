@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write Notion page ids from create-pages JSON results into WCP frontmatter."""
+"""Write Notion page ids from create-pages JSON results into wcp frontmatter."""
 
 from __future__ import annotations
 

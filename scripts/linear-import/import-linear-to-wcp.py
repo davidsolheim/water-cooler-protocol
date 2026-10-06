@@ -161,7 +161,7 @@ def map_status(state_type: str, state_name: str) -> tuple[str, str]:
     if "block" in low:
         return "blocked", f"Imported from Linear status {name}."
     # Triage, Backlog, Todo, In Progress, and In Review stay open.
-    # in-progress would look leased, and in-review would start reviewers.
+    # A Linear name alone does not move an issue to in-progress or done.
     return "open", ""
 
 
@@ -222,12 +222,12 @@ def render(issue: dict, wcp_id: str, status: str, reason: str) -> str:
         f"status: {status}",
         f"priority: {priority_of(issue.get('priority'))}",
         "assignee:",
-        "lease_expires:",
         f"scope: {yml('Imported from Linear ' + issue['identifier'] + '. Stay inside that description.')}",
         f"acceptance: {yml(acceptance(description))}",
         "files: []",
-        "commit:",
         f"reason: {yml(reason) if reason else ''}".rstrip(),
+        "dev:",
+        "main:",
         f"created: {yml(issue.get('createdAt') or '')}",
         "session:",
         "pr:",
@@ -272,7 +272,7 @@ def render(issue: dict, wcp_id: str, status: str, reason: str) -> str:
         f"- Archived: {issue.get('archivedAt') or 'no'}",
         f"- Branch: {issue.get('branchName') or 'none'}",
         "",
-        "Queue status follows Water Cooler Protocol. Todo, In Progress, In Review, Triage, and Backlog are `open` so the import does not take a ticket lease or start a review. Done, Canceled, and Blocked use those folders. `linear_status` is the Linear status at import.",
+        "Queue status follows wcp. Todo, In Progress, In Review, Triage, and Backlog are `open`. Done, Canceled, and Blocked use those folders. `linear_status` is the Linear status at import.",
         "",
         "## Description",
         "",
@@ -283,7 +283,7 @@ def render(issue: dict, wcp_id: str, status: str, reason: str) -> str:
 
 
 def queue_id_state(issues: Path) -> tuple[dict[str, str], set[int]]:
-    """Map linear_id to the WCP id already on disk, and reserve every numeric id."""
+    """Map linear_id to the wcp id already on disk, and reserve every numeric id."""
     by_linear: dict[str, str] = {}
     reserved: set[int] = set()
     if not issues.exists():
@@ -348,7 +348,7 @@ def assign_ids(
                 number = int(wcp_id)
                 owner = owners.get(number)
                 if owner and owner != linear_id:
-                    raise SystemExit(f"WCP id {wcp_id} is stored for both {owner} and {linear_id}")
+                    raise SystemExit(f"wcp id {wcp_id} is stored for both {owner} and {linear_id}")
                 owners[number] = linear_id
                 used_numbers.add(number)
             if linear_id not in found_ids:
@@ -450,11 +450,12 @@ def carry_notion(body: str, issues: Path, linear_id: str) -> str:
     return body
 
 
-WCP_OWNED_FIELDS = (
+owned_fields = (
     "status",
     "assignee",
-    "lease_expires",
     "files",
+    "dev",
+    "main",
     "commit",
     "pr",
     "session",
@@ -594,7 +595,7 @@ def preserve_wcp_fields(body: str, issues: Path, linear_id: str) -> str:
     if len(parts) < 3:
         return body
     new_front = parts[1]
-    for key in WCP_OWNED_FIELDS:
+    for key in owned_fields:
         block = front_field(old_front, key)
         if block is None:
             continue
@@ -849,7 +850,7 @@ def main() -> None:
     print("Linear status:")
     for name, count in summary["linear_status"].items():
         print(f"  {name}: {count}")
-    print("WCP status:")
+    print("wcp status:")
     for name in FOLDERS:
         print(f"  {name}: {summary['wcp_status'].get(name, 0)}")
     print(f"total: {summary['total']}")
@@ -879,7 +880,7 @@ def main() -> None:
         taken = id_owned_by_other(root, wcp_id, linear_id)
         if taken is not None:
             raise SystemExit(
-                f"WCP id {wcp_id} is already used by {taken} and is not {linear_id}. "
+                f"wcp id {wcp_id} is already used by {taken} and is not {linear_id}. "
                 "Move that ticket or pick another id before --force."
             )
         planned.append((issue, wcp_id, linear_id))

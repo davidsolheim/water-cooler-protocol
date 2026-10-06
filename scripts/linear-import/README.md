@@ -1,6 +1,6 @@
 # Linear import
 
-Copy a Linear team's issues into a repo's Water Cooler queue (`.wcp/issues/`) and build Notion page batches for the human board.
+Copy a Linear team's issues into a repo's wcp queue (`.wcp/issues/`) and build Notion page batches for the human board.
 
 The Linear token is read from the named MCP server in `~/.grok/config.toml`. These scripts never print the token, the Authorization header, or the config file.
 
@@ -66,9 +66,9 @@ When more than one team shares the workspace, pass every team key that should be
 | `--expect-total`, `--expect-open`, `--expect-done`, `--expect-canceled` | Exit 3 when a count differs |
 | `--require-span MIN:MAX` | Require contiguous issue numbers with no gaps |
 
-`identity` uses each Linear issue number as the WCP id, zero-padded to 4 digits (`SODA-7` is `0007`). It fails if two selected teams share a number.
+`identity` uses each Linear issue number as the wcp id, zero-padded to 4 digits (`SODA-7` is `0007`). It fails if two selected teams share a number.
 
-`primary-then-rest` keeps the first `--teams` key's numbers and assigns every other selected team the next free ids, sorted by team key then number. A later run reuses the WCP id already stored for each `linear_id`. New issues take the next id after every numeric id already in the queue, so an added primary issue does not renumber the other teams. The scripts refuse a checkout that has both `.wcp/` and `.WCP/`.
+`primary-then-rest` keeps the first `--teams` key's numbers and assigns every other selected team the next free ids, sorted by team key then number. A later run reuses the wcp id already stored for each `linear_id`. New issues take the next id after every numeric id already in the queue, so an added primary issue does not renumber the other teams. The scripts refuse a checkout that has both `.wcp/` and `.wcp/`.
 
 Filenames are `YYYYMMDDThhmmZ-NNNN-<linear-id>-<slug>.md`, stamped from the issue's `createdAt`, for example `20260901T0000Z-0007-soda-7-short-title.md`. New `done` and `canceled` files go under `YYYY/MM/DD` from that same time. Older flat files stay where they are.
 
@@ -80,18 +80,18 @@ Filenames are `YYYYMMDDThhmmZ-NNNN-<linear-id>-<slug>.md`, stamped from the issu
 
 ## Status map
 
-| Linear | WCP folder |
+| Linear | wcp folder |
 | --- | --- |
 | Triage, Backlog, Todo, In Progress, In Review | `open` |
 | Done, or status type completed | `done` |
 | Canceled, Cancelled, Duplicate, or status type canceled | `canceled` |
 | A status whose name contains "block" | `blocked` |
 
-Open imports leave `assignee` and `lease_expires` empty. In Progress does not take a ticket lease. In Review does not start a review. `linear_status` keeps the Linear name. Canceled and blocked files get a `reason` that names the Linear status.
+Open imports leave `assignee` empty. Todo, In Progress, and In Review stay `open`. `linear_status` keeps the Linear name. Canceled and blocked files get a `reason` that names the Linear status.
 
 ## Priority map
 
-| Linear priority | WCP |
+| Linear priority | wcp |
 | --- | --- |
 | 1 Urgent | `critical` |
 | 2 High | `high` |
@@ -101,14 +101,14 @@ Open imports leave `assignee` and `lease_expires` empty. In Progress does not ta
 
 Create the database before the batches. Properties match the inventRight issues board:
 
-Issue name (title), WCP (text), Issue URL (url), Status (Backlog, Todo, In Progress, In Review, Done, Canceled, Duplicate), Queue (open, in-progress, in-review, done, canceled, blocked), Priority (critical, high, normal, low), Assignee (text), Team (select), Project (select), Labels (multi-select), Due (date), Parent (text), Archived (checkbox).
+Issue name (title), wcp (text), Issue URL (url), Status (Backlog, Todo, In Progress, In Review, Done, Canceled, Duplicate), Queue (open, in-progress, done, deployed-dev, deployed-main, canceled, blocked), Priority (critical, high, normal, low), Assignee (text), Team (select), Project (select), Labels (multi-select), Due (date), Parent (text), Archived (checkbox).
 
 Views: All (table grouped by Status), By status (board grouped by Status), Open queue (Queue is open), and one table per status.
 
 Page body:
 
 ```
-WCP `0007`. Linear [SODA-7](https://linear.app/example/issue/SODA-7/slug).
+wcp `0007`. Linear [SODA-7](https://linear.app/example/issue/SODA-7/slug).
 
 <acceptance>
 

@@ -1,4 +1,4 @@
-"""Resolve the live WCP queue directory. Matches src/paths.ts wcpDirNameFrom."""
+"""Resolve the wcp queue directory. The folder is `.wcp`."""
 
 from __future__ import annotations
 
@@ -7,10 +7,17 @@ import os
 import re
 from pathlib import Path
 
-WCP_DIR_NAME = ".wcp"
-LEGACY_WCP_DIR_NAME = ".WCP"
-QUEUE_FOLDERS = ("open", "in-progress", "in-review", "done", "canceled", "blocked")
-ARCHIVE_FOLDERS = ("done", "canceled")
+QUEUE_DIR = ".wcp"
+QUEUE_FOLDERS = (
+    "open",
+    "in-progress",
+    "done",
+    "deployed-dev",
+    "deployed-main",
+    "canceled",
+    "blocked",
+)
+ARCHIVE_FOLDERS = ("done", "canceled", "deployed-dev", "deployed-main")
 CREATED_RE = re.compile(
     r"\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?Z\Z"
 )
@@ -27,29 +34,8 @@ def dir_names(root: Path) -> list[str]:
         return []
 
 
-def wcp_dir_names(root: Path) -> dict[str, bool]:
-    names = dir_names(root)
-    return {
-        "canonical": WCP_DIR_NAME in names,
-        "legacy": LEGACY_WCP_DIR_NAME in names,
-    }
-
-
 def wcp_dir_name_from_entries(names: list[str]) -> str:
-    canonical = WCP_DIR_NAME in names
-    legacy = LEGACY_WCP_DIR_NAME in names
-    if canonical and legacy:
-        raise ValueError(
-            "WCP refuses to run while both .wcp/ and .WCP/ exist. "
-            "Stop any daemon. Do not rename one folder onto the other; that nests a tree. "
-            "Copy issue files from .WCP/issues/ into .wcp/issues/ only when the destination file is missing, "
-            "keep the runtime database you still need, then remove .WCP/ after checking the copy."
-        )
-    if canonical:
-        return WCP_DIR_NAME
-    if legacy:
-        return LEGACY_WCP_DIR_NAME
-    return WCP_DIR_NAME
+    return QUEUE_DIR
 
 
 def wcp_dir_name(root: Path) -> str:

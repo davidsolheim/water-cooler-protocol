@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Append Linear comments onto imported WCP issues. Does not print secrets."""
+"""Append Linear comments onto imported wcp issues. Does not print secrets."""
 
 from __future__ import annotations
 
@@ -256,7 +256,7 @@ def main() -> None:
     parser.add_argument(
         "--folders",
         default=",".join(QUEUE_FOLDERS),
-        help="Comma-separated queue folders. Only open, in-progress, in-review, done, canceled, blocked",
+        help="Comma-separated queue folders. Only open, in-progress, done, deployed-dev, deployed-main, canceled, blocked",
     )
     parser.add_argument(
         "--teams",
