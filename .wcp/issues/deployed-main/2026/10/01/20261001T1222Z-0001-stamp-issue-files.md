@@ -1,7 +1,7 @@
 ---
 id: 0001
 title: Stamp issue files and archive done and canceled by day
-status: done
+status: deployed-main
 priority: high
 assignee: queue-layout
 lease_expires:
@@ -20,6 +20,8 @@ files:
   - scripts/linear-import/test_linear_import.py
   - scripts/linear-import/README.md
 commit:
+dev: e53c350707c4b72a5c903d6730af8d8e05599cb6
+main: e53c350707c4b72a5c903d6730af8d8e05599cb6
 pr:
 reason:
 created: 2026-10-01T12:22:27Z

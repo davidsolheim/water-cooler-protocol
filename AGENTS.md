@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repo is wcp. It is a spec and a skill. It is not a daemon.
+This repo is wcp. It is a spec, a skill, and the public site in `site/`. It is not a daemon.
 
 ## Product
 
@@ -17,10 +17,15 @@ This repo is wcp. It is a spec and a skill. It is not a daemon.
 - Do not push unless the run is quiet: `in-progress/` is empty and this agent has no further task
 - Do not reset, checkout, or stash another agent's work
 
+## Site
+
+The public pages live in `site/`. From that directory, `bun run dev` and `bun run build`. A Vercel project for the domain uses root directory `site`.
+
 ## Tests
 
 ```bash
 python3 -m unittest discover -s scripts/linear-import -p 'test_*.py'
+cd site && bun run build
 ```
 
 The Python suite checks the Linear importer's issue paths.

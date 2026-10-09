@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --color-bg: #0c0d0c;
+  --color-surface: #141614;
+  --color-surface-2: #1c1e1c;
+  --color-fg: #eceae4;
+  --color-muted: #8b8e87;
+  --color-subtle: #63665f;
+  --color-accent: #9aafa4;
+  --color-border: #2a2c2a;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+}
+
+:root {
+  --shadow-border: 0 0 0 1px #eceae414;
+  --shadow-border-hover: 0 0 0 1px #eceae424;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes fade-up {
+  0% {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+.stagger-in {
+  animation: fade-up 0.5s var(--ease-smooth-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stagger-in {
+    animation: none;
+  }
+}

@@ -8,6 +8,17 @@ Spec: [`PROTOCOL.md`](PROTOCOL.md)
 
 Player skill: [`skill/water-cooler-protocol/SKILL.md`](skill/water-cooler-protocol/SKILL.md)
 
+The public site is [`site/`](site/). It is the home page and the spec page.
+
+```bash
+cd site
+bun install
+bun run dev
+bun run build
+```
+
+For Vercel, create a project from this repo and set the root directory to `site`. The framework is Vite. The build output is `dist`. Then move `watercoolerprotocol.com` onto that project.
+
 ## Folders
 
 | Folder | Meaning |
